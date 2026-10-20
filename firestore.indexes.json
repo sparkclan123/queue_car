@@ -1,0 +1,9 @@
+{
+  "indexes": [],
+  "fieldOverrides": [
+    { "collectionGroup": "evidence", "fieldPath": "dataUrl", "indexes": [] },
+    { "collectionGroup": "entries", "fieldPath": "description", "indexes": [] },
+    { "collectionGroup": "jobs", "fieldPath": "note", "indexes": [] },
+    { "collectionGroup": "audits", "fieldPath": "detail", "indexes": [] }
+  ]
+}
