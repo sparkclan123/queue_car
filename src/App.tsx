@@ -32,6 +32,9 @@ import {
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useStore } from './lib/store'
+import { useCurrentDay, useReports } from './lib/useReports'
+import { DriverReport, ReportPanel } from './components/Reports'
+import type { ReportDriver, ReportProps } from './components/Reports'
 import { errorMessage, login, logout } from './lib/firebase'
 import {
   dateLabel,
@@ -44,7 +47,7 @@ import {
   today,
 } from './lib/model'
 import type { Driver, Entry, Evidence, Job, QueueItem } from './lib/model'
-import { Avatar, Badge, Empty, Hint, Logo, MapArt, Modal, Route } from './components/ui'
+import { Avatar, Badge, Empty, Hint, Logo, Modal, Route } from './components/ui'
 import {
   CancelQueueForm,
   ConfirmForm,
@@ -60,6 +63,7 @@ type Dialog =
   | { type: 'job' | 'cancel-queue' | 'queue-actions'; item: QueueItem }
   | { type: 'job-detail'; job: Job }
   | { type: 'entry-detail'; entry: Entry }
+  | { type: 'driver-report'; driver: ReportDriver }
   | { type: 'confirm'; title: string; text: string; label: string; action: () => Promise<void> }
 const navs: { id: Page; label: string; icon: LucideIcon; private?: boolean }[] = [
   { id: 'dashboard', label: 'ภาพรวม', icon: LayoutDashboard },
@@ -79,7 +83,33 @@ export default function App() {
     [entryDriver, setEntryDriver] = useState(''),
     [entryStatusFilter, setEntryStatusFilter] = useState('all'),
     [loginBusy, setLoginBusy] = useState(false),
-    [loginError, setLoginError] = useState('')
+    [loginError, setLoginError] = useState(''),
+    [reportStart, setReportStart] = useState(() => today().slice(0, 7) + '-01'),
+    [reportEnd, setReportEnd] = useState<string | null>(null),
+    [reportRevision, setReportRevision] = useState(0)
+  const currentDay = useCurrentDay()
+  const reportPeriod = { start: reportStart, end: reportEnd || currentDay }
+  const report = useReports(
+    reportPeriod,
+    s.admin,
+    s.data,
+    page === 'dashboard' || dialog?.type === 'driver-report',
+    reportRevision,
+  )
+  const reportProps: ReportProps = {
+    ...report,
+    admin: s.admin,
+    period: reportPeriod,
+    currentDay,
+    onPeriod: (start, end) => {
+      setReportStart(start)
+      setReportEnd(end)
+    },
+    onRefresh: () => setReportRevision((v) => v + 1),
+    onDriver: (driver) => setDialog({ type: 'driver-report', driver }),
+    onJob: (job) => setDialog({ type: 'job-detail', job }),
+    onEntry: (entry) => setDialog({ type: 'entry-detail', entry }),
+  }
   const queue = [...s.data.queue].sort((a, b) => a.joinedAt - b.joinedAt),
     jobs = s.data.jobs.filter((j) => j.date === s.day).sort((a, b) => b.createdAt - a.createdAt),
     entries = s.data.entries
@@ -104,6 +134,7 @@ export default function App() {
       dialog &&
       dialog.type !== 'login' &&
       dialog.type !== 'job-detail' &&
+      dialog.type !== 'driver-report' &&
       dialog.type !== 'help'
     )
       setDialog(null)
@@ -121,6 +152,7 @@ export default function App() {
   }
   function done() {
     setDialog(null)
+    setReportRevision((v) => v + 1)
     setToast('บันทึกเรียบร้อยแล้ว')
   }
   async function signIn() {
@@ -138,40 +170,6 @@ export default function App() {
   }
   const newQueue = () => setDialog({ type: 'queue' }),
     newEntry = () => setDialog({ type: 'entry' })
-  const dayJobs = jobs.filter((j) => j.status !== 'cancelled')
-  const destinationCount = new Set(dayJobs.flatMap((j) => j.provinces)).size
-  const summary = [
-    {
-      label: 'รอคิว',
-      value: queue.length,
-      unit: 'คัน',
-      icon: ClipboardList,
-      color: 'green',
-      detail: 'พร้อมรับงานถัดไป',
-      page: 'queue' as const,
-      filter: 'all',
-    },
-    {
-      label: 'กำลังวิ่ง',
-      value: jobs.filter((j) => j.status === 'running').length,
-      unit: 'คัน',
-      icon: Truck,
-      color: 'blue',
-      detail: `วันที่ ${dateLabel(s.day)}`,
-      page: 'jobs' as const,
-      filter: 'running',
-    },
-    {
-      label: 'จบงานแล้ว',
-      value: jobs.filter((j) => j.status === 'completed').length,
-      unit: 'เที่ยว',
-      icon: Check,
-      color: 'orange',
-      detail: `วันที่ ${dateLabel(s.day)}`,
-      page: 'jobs' as const,
-      filter: 'completed',
-    },
-  ]
   function moveQueueToEnd(item: QueueItem) {
     setDialog({
       type: 'confirm',
@@ -238,7 +236,19 @@ export default function App() {
                 {!compact && <Avatar name={q.driverName} index={i} />}
                 <div className="queue-person">
                   <strong>
-                    {q.driverName}
+                    <button
+                      className="driver-name-link"
+                      onClick={() =>
+                        reportProps.onDriver({
+                          id: q.driverId,
+                          name: q.driverName,
+                          plate: q.plate,
+                        })
+                      }
+                    >
+                      {q.driverName}
+                      <ChevronRight size={13} />
+                    </button>
                     {!compact && queue.indexOf(q) === 0 && (
                       <span className="next-label">คิวถัดไป</span>
                     )}
@@ -514,35 +524,37 @@ export default function App() {
               </button>
             </div>
           )}
-          <div className="page-heading">
-            <div>
-              <div className="eyebrow">{s.admin ? 'FLEET WORKSPACE' : 'LIVE FLEET BOARD'}</div>
-              <h1>{headerTitles[page][0]}</h1>
-              <p>{headerTitles[page][1]}</p>
-            </div>
-            <div className="heading-actions">
-              {['dashboard', 'jobs'].includes(page) && dateControl()}
-              {s.admin && page !== 'dashboard' && (
-                <button
-                  className="btn primary"
-                  onClick={() =>
-                    page === 'finance'
-                      ? newEntry()
+          {page !== 'dashboard' && (
+            <div className="page-heading">
+              <div>
+                <div className="eyebrow">{s.admin ? 'FLEET WORKSPACE' : 'LIVE FLEET BOARD'}</div>
+                <h1>{headerTitles[page][0]}</h1>
+                <p>{headerTitles[page][1]}</p>
+              </div>
+              <div className="heading-actions">
+                {page === 'jobs' && dateControl()}
+                {s.admin && (
+                  <button
+                    className="btn primary"
+                    onClick={() =>
+                      page === 'finance'
+                        ? newEntry()
+                        : page === 'drivers'
+                          ? setDialog({ type: 'driver' })
+                          : newQueue()
+                    }
+                  >
+                    <Plus size={18} />
+                    {page === 'finance'
+                      ? 'เพิ่มรายการ'
                       : page === 'drivers'
-                        ? setDialog({ type: 'driver' })
-                        : newQueue()
-                  }
-                >
-                  <Plus size={18} />
-                  {page === 'finance'
-                    ? 'เพิ่มรายการ'
-                    : page === 'drivers'
-                      ? 'เพิ่มคนรถ'
-                      : 'ลงคิวรถ'}
-                </button>
-              )}
+                        ? 'เพิ่มคนรถ'
+                        : 'ลงคิวรถ'}
+                  </button>
+                )}
+              </div>
             </div>
-          </div>
+          )}
           {s.loading ? (
             <div className="loading-state">
               <span className="loading-bar" />
@@ -552,131 +564,36 @@ export default function App() {
             <>
               {page === 'dashboard' && (
                 <>
-                  <section className="welcome-banner">
-                    <div>
-                      <span className="banner-kicker">
-                        <span className="live-dot" /> พร้อมสำหรับทุกเส้นทาง
-                      </span>
-                      <h2>
-                        คิวชัด งานเดิน
-                        <br className="mobile-only" /> ทุกเที่ยวเป็นระบบ<span>.</span>
-                      </h2>
-                      <p>
-                        เช็กคิวรถและเส้นทางวันนี้ได้ในพริบตา
-                        <br />
-                        ให้ทุกการเดินทาง เริ่มต้นอย่างราบรื่น
-                      </p>
-                      <button className="banner-link" onClick={() => navigate('queue')}>
-                        ดูคิวรถทั้งหมด <ArrowRight size={17} />
-                      </button>
-                    </div>
-                    <MapArt />
-                  </section>
-                  <div className="stats-grid overview-stats" aria-label="สรุปคิวและงานวิ่ง">
-                    {summary.map((x) => (
-                      <button
-                        className={`stat-card stat-${x.color}`}
-                        key={x.label}
-                        aria-label={`${x.label} ${x.value} ${x.unit} · ${x.detail}`}
-                        onClick={() => navigate(x.page, x.filter)}
-                      >
-                        <div className="stat-top">
-                          <span>{x.label}</span>
-                          <span className={`stat-icon ${x.color}`}>
-                            <x.icon size={19} />
-                          </span>
-                        </div>
-                        <div className="stat-value">
-                          {x.value}
-                          <span>{x.unit}</span>
-                        </div>
-                        <small>{x.detail}</small>
-                      </button>
-                    ))}
-                  </div>
-                  <div className="dashboard-grid">
-                    <section className="panel queue-panel">
-                      <div className="panel-heading">
-                        <div>
-                          <h2>
-                            <ClipboardList size={19} />
-                            คิวรถตอนนี้ <span className="count">{queue.length}</span>
-                          </h2>
-                          <p>ลำดับแรกพร้อมรับงานถัดไป</p>
-                        </div>
-                        {s.admin ? (
-                          <button className="btn primary small queue-add" onClick={newQueue}>
-                            <Plus size={16} /> ลงคิว
-                          </button>
-                        ) : (
-                          <span className="live-pill">
-                            <Radio size={13} /> อัปเดตสด
-                          </span>
-                        )}
+                  <section className="dispatch-board" aria-label="คิวรถปัจจุบัน">
+                    <div className="dispatch-heading">
+                      <div>
+                        <span className="section-index">01 / คิวปัจจุบัน</span>
+                        <h1>
+                          <strong>{queue.length}</strong>
+                          <span>คันรอรับงาน</span>
+                        </h1>
+                        <p>
+                          <span className={`live-dot ${!s.online ? 'offline' : ''}`} />
+                          {s.online ? 'อัปเดตคิวอัตโนมัติ' : 'ออฟไลน์'} · {dateLabel(currentDay)}
+                        </p>
                       </div>
-                      {queueContent(true)}
-                      <div className="panel-footer">
-                        <button className="text-btn" onClick={() => navigate('queue')}>
-                          {queue.length > 4
-                            ? `ดูคิวทั้งหมด ${queue.length} คัน · อีก ${queue.length - 4} คัน`
-                            : s.admin
-                              ? 'จัดการคิวทั้งหมด'
-                              : 'ดูคิวทั้งหมด'}
-                          <ArrowRight size={15} />
-                        </button>
-                      </div>
-                    </section>
-                    <section className="daily-panel">
-                      <div className="panel-heading">
-                        <div>
-                          <h2>
-                            {s.day === today() ? 'งานวิ่งวันนี้' : 'งานวิ่งวันที่เลือก'}
-                            <span className="count">{dayJobs.length}</span>
-                          </h2>
-                          <p>
-                            {dateLabel(s.day)} · {destinationCount} จังหวัด
-                          </p>
-                        </div>
-                        <button
-                          className="icon-btn"
-                          aria-label="ดูงานวิ่งทั้งหมด"
-                          onClick={() => navigate('jobs')}
-                        >
-                          <ArrowUpRight size={20} />
-                        </button>
-                      </div>
-                      <div className="daily-jobs">
-                        {dayJobs.slice(0, 3).map(jobCard)}
-                        {!dayJobs.length && (
-                          <Empty
-                            title={
-                              s.day === today() ? 'ยังไม่มีงานวันนี้' : 'ยังไม่มีงานในวันที่เลือก'
-                            }
-                            detail="งานและเส้นทางจะแสดงเมื่อมีการจ่ายงาน"
-                          />
-                        )}
-                      </div>
-                      {dayJobs.length > 0 && (
-                        <button className="all-jobs" onClick={() => navigate('jobs')}>
-                          ดูงานวิ่งทั้งหมด <ArrowRight size={15} />
+                      {s.admin && (
+                        <button className="btn primary" onClick={newQueue}>
+                          <Plus size={18} /> ลงคิวรถ
                         </button>
                       )}
-                    </section>
-                  </div>
-                  <section className="bottom-info">
-                    <span>
-                      <span className="info-icon">
-                        <MapPin size={21} />
-                      </span>
+                    </div>
+                    {queueContent(true)}
+                    <div className="dispatch-footer">
                       <span>
-                        <strong>เที่ยวเดียว ไปได้หลายจังหวัด</strong>
-                        <small>ดูจุดส่งและจังหวัดพ่วงตามลำดับเส้นทางได้ในรายละเอียดงาน</small>
+                        {queue.length > 4 ? `แสดง 4 จาก ${queue.length} คัน` : 'เรียงตามเวลาลงคิว'}
                       </span>
-                    </span>
-                    <button className="text-btn" onClick={() => navigate('jobs')}>
-                      เปิดตารางงาน <ArrowRight size={16} />
-                    </button>
+                      <button className="text-btn" onClick={() => navigate('queue')}>
+                        ดูคิวทั้งหมด <ArrowRight size={16} />
+                      </button>
+                    </div>
                   </section>
+                  <ReportPanel {...reportProps} />
                 </>
               )}
               {page === 'queue' && (
@@ -989,7 +906,21 @@ export default function App() {
                                 <MoreHorizontal size={21} />
                               </button>
                             </div>
-                            <h3>{d.name}</h3>
+                            <h3>
+                              <button
+                                className="driver-name-link"
+                                onClick={() =>
+                                  reportProps.onDriver({
+                                    id: d.id,
+                                    name: d.name,
+                                    plate: d.plate,
+                                  })
+                                }
+                              >
+                                {d.name}
+                                <ChevronRight size={15} />
+                              </button>
+                            </h3>
                             <p>
                               <span className="plate">{d.plate}</span> {d.truckType}
                             </p>
@@ -1088,7 +1019,7 @@ export default function App() {
             </>
           )}
           <footer className="page-footer">
-            <span>คิวรถ · จัดการง่าย ไปได้ทุกเส้นทาง</span>
+            <span>คิวรถ / สมุดงานเดินรถ</span>
             <div>
               {s.admin && (
                 <button className="text-btn" onClick={() => navigate('activity')}>
@@ -1126,35 +1057,41 @@ export default function App() {
       )}
       {dialog && (
         <Modal
+          wide={dialog.type === 'driver-report'}
           title={
             dialog.type === 'login'
               ? 'เข้าสู่ระบบ'
-              : dialog.type === 'queue'
-                ? 'ลงคิวรถ'
-                : dialog.type === 'driver'
-                  ? dialog.driver
-                    ? 'แก้ไขข้อมูลคนรถ'
-                    : 'เพิ่มคนรถ'
-                  : dialog.type === 'queue-actions'
-                    ? 'จัดการคิวรถ'
-                    : dialog.type === 'job'
-                      ? 'จ่ายงานวิ่ง'
-                      : dialog.type === 'cancel-queue'
-                        ? 'ยกเลิกคิว'
-                        : dialog.type === 'entry'
-                          ? 'เพิ่มรายการการเงิน'
-                          : dialog.type === 'job-detail'
-                            ? 'รายละเอียดงานวิ่ง'
-                            : dialog.type === 'entry-detail'
-                              ? 'รายละเอียดการเงิน'
-                              : dialog.type === 'confirm'
-                                ? dialog.title
-                                : 'ใช้งานคิวรถ'
+              : dialog.type === 'driver-report'
+                ? 'รายงานคนรถ'
+                : dialog.type === 'queue'
+                  ? 'ลงคิวรถ'
+                  : dialog.type === 'driver'
+                    ? dialog.driver
+                      ? 'แก้ไขข้อมูลคนรถ'
+                      : 'เพิ่มคนรถ'
+                    : dialog.type === 'queue-actions'
+                      ? 'จัดการคิวรถ'
+                      : dialog.type === 'job'
+                        ? 'จ่ายงานวิ่ง'
+                        : dialog.type === 'cancel-queue'
+                          ? 'ยกเลิกคิว'
+                          : dialog.type === 'entry'
+                            ? 'เพิ่มรายการการเงิน'
+                            : dialog.type === 'job-detail'
+                              ? 'รายละเอียดงานวิ่ง'
+                              : dialog.type === 'entry-detail'
+                                ? 'รายละเอียดการเงิน'
+                                : dialog.type === 'confirm'
+                                  ? dialog.title
+                                  : 'ใช้งานคิวรถ'
           }
           onClose={() => setDialog(null)}
         >
           {dialog.type === 'login' && (
             <LoginPanel onLogin={() => void signIn()} busy={loginBusy} error={loginError} />
+          )}
+          {dialog.type === 'driver-report' && (
+            <DriverReport {...reportProps} driver={dialog.driver} />
           )}
           {dialog.type === 'queue' && (
             <QueueForm onDone={done} onAddDriver={() => setDialog({ type: 'driver' })} />
@@ -1194,7 +1131,7 @@ export default function App() {
                 <X size={20} />
                 <span>
                   <strong>ยกเลิกคิว</strong>
-                  <small>นำรถออกจากคิว พร้อมระบุเหตุผล</small>
+                  <small>ระบุคนขึ้นแทนและยอดเงินได้ หากมี</small>
                 </span>
                 <ChevronRight size={17} />
               </button>
@@ -1214,6 +1151,13 @@ export default function App() {
           {dialog.type === 'job-detail' && (
             <JobDetail
               job={s.data.jobs.find((j) => j.id === dialog.job.id) || dialog.job}
+              onDriver={() =>
+                reportProps.onDriver({
+                  id: dialog.job.driverId,
+                  name: dialog.job.driverName,
+                  plate: dialog.job.plate,
+                })
+              }
               onAction={(status) =>
                 setDialog({
                   type: 'confirm',
@@ -1232,7 +1176,15 @@ export default function App() {
           )}
           {dialog.type === 'entry-detail' && (
             <EntryDetail
+              key={dialog.entry.id}
               entry={s.data.entries.find((e) => e.id === dialog.entry.id) || dialog.entry}
+              onDriver={() =>
+                reportProps.onDriver({
+                  id: dialog.entry.driverId,
+                  name: dialog.entry.driverName,
+                  plate: dialog.entry.plate,
+                })
+              }
               onAction={(status) =>
                 setDialog({
                   type: 'confirm',
@@ -1283,10 +1235,21 @@ export default function App() {
     </div>
   )
 }
-function JobDetail({ job, onAction }: { job: Job; onAction: (s: Job['status']) => void }) {
+function JobDetail({
+  job,
+  onAction,
+  onDriver,
+}: {
+  job: Job
+  onAction: (s: Job['status']) => void
+  onDriver: () => void
+}) {
   const s = useStore()
   return (
     <div className="form detail">
+      <button className="text-btn" onClick={onDriver}>
+        ดูรายงานรวมของคนรถคันนี้ <ArrowRight size={16} />
+      </button>
       <div className="detail-top">
         <div className="selected-person">
           <Avatar name={job.driverName} />
@@ -1352,9 +1315,11 @@ function JobDetail({ job, onAction }: { job: Job; onAction: (s: Job['status']) =
 function EntryDetail({
   entry,
   onAction,
+  onDriver,
 }: {
   entry: Entry
   onAction: (s: Entry['status']) => void
+  onDriver: () => void
 }) {
   const s = useStore(),
     [images, setImages] = useState<Evidence[]>([]),
@@ -1384,7 +1349,12 @@ function EntryDetail({
       <dl>
         <div>
           <dt>คนรถ</dt>
-          <dd>{entry.driverName}</dd>
+          <dd>
+            <button className="driver-name-link" onClick={onDriver}>
+              {entry.driverName}
+              <ChevronRight size={15} />
+            </button>
+          </dd>
         </div>
         <div>
           <dt>ทะเบียนรถ</dt>

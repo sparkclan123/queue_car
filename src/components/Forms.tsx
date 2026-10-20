@@ -1,20 +1,22 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { ArrowRight, Camera, Check, LoaderCircle, Plus, X } from 'lucide-react'
 import { useStore } from '../lib/store'
 import { errorMessage } from '../lib/firebase'
-import { kinds, provinces, toSatang, today } from '../lib/model'
+import { kinds, optionalSatang, provinces, toSatang, today } from '../lib/model'
 import type { Driver, Entry, Evidence, QueueItem } from '../lib/model'
 import { compressEvidence } from '../lib/evidence'
 import { Avatar, Empty, Hint } from './ui'
 export function useSubmit(onDone: () => void) {
   const [busy, setBusy] = useState(false),
     [error, setError] = useState('')
+  const locked = useRef(false)
   return {
     busy,
     error,
     run: async (fn: () => Promise<void>) => {
-      if (busy) return
+      if (locked.current) return
+      locked.current = true
       setBusy(true)
       setError('')
       try {
@@ -23,6 +25,7 @@ export function useSubmit(onDone: () => void) {
       } catch (e) {
         setError(errorMessage(e))
       } finally {
+        locked.current = false
         setBusy(false)
       }
     },
@@ -286,6 +289,9 @@ export function JobForm({ item, onDone }: { item: QueueItem; onDone: () => void 
 }
 export function CancelQueueForm({ item, onDone }: { item: QueueItem; onDone: () => void }) {
   const s = useStore(),
+    [replacement, setReplacement] = useState(''),
+    [stops, setStops] = useState<string[]>([]),
+    [province, setProvince] = useState(''),
     submit = useSubmit(onDone)
   return (
     <form
@@ -293,7 +299,19 @@ export function CancelQueueForm({ item, onDone }: { item: QueueItem; onDone: () 
       onSubmit={(e) => {
         e.preventDefault()
         const f = new FormData(e.currentTarget)
-        void submit.run(() => s.cancelQueue(item.id, String(f.get('reason'))))
+        void submit.run(() =>
+          s.cancelQueue(item.id, {
+            reason: String(f.get('reason')),
+            replacementDriverId: replacement,
+            jobDate: String(f.get('jobDate') || today()),
+            provinces: stops,
+            deductionAmount: optionalSatang(String(f.get('deduction') || '0')),
+            compensationAmount: replacement
+              ? optionalSatang(String(f.get('compensation') || '0'))
+              : 0,
+            deductionRecipient: String(f.get('deductionRecipient') || ''),
+          }),
+        )
       }}
     >
       <p>
@@ -309,8 +327,109 @@ export function CancelQueueForm({ item, onDone }: { item: QueueItem; onDone: () 
           placeholder="เช่น รถเข้าซ่อม / คนรถขอลา"
         />
       </label>
-      <Hint>ระบบเก็บเหตุผลและผู้ดำเนินการในประวัติกิจกรรม</Hint>
-      <Footer {...submit} label="ยืนยันยกเลิกคิว" />
+      <div className="form-section-title">
+        คนขึ้นงานแทน <span>ถ้ามี</span>
+      </div>
+      <label>
+        ผู้ขึ้นงานแทน
+        <select value={replacement} onChange={(e) => setReplacement(e.target.value)}>
+          <option value="">ไม่มีคนขึ้นงานแทน</option>
+          {s.data.queue
+            .filter((q) => q.id !== item.id)
+            .sort((a, b) => a.joinedAt - b.joinedAt)
+            .map((q) => (
+              <option key={q.id} value={q.id}>
+                {q.driverName} · {q.plate}
+              </option>
+            ))}
+        </select>
+        <small className="field-help">เลือกจากรถในคิว ระบบจะจ่ายงานและนำคนแทนออกจากคิวด้วย</small>
+      </label>
+      {replacement && (
+        <>
+          <label>
+            วันที่ขึ้นงานแทน <b>*</b>
+            <input type="date" name="jobDate" defaultValue={today()} min={today()} required />
+          </label>
+          <label>
+            จังหวัด / จุดส่งตามลำดับ <b>*</b>
+            <div className="inline-input">
+              <select
+                aria-label="จังหวัดขึ้นงานแทน"
+                value={province}
+                onChange={(e) => setProvince(e.target.value)}
+              >
+                <option value="">เลือกจังหวัด…</option>
+                {provinces.map((p) => (
+                  <option key={p}>{p}</option>
+                ))}
+              </select>
+              <button
+                type="button"
+                className="btn secondary"
+                disabled={!province || stops.length >= 8}
+                onClick={() => {
+                  setStops([...stops, province])
+                  setProvince('')
+                }}
+              >
+                <Plus size={16} /> เพิ่ม
+              </button>
+            </div>
+          </label>
+          <div className="stops">
+            {stops.map((p, i) => (
+              <div key={i}>
+                <span className="stop-number">{i + 1}</span>
+                <span>{p}</span>
+                <button
+                  type="button"
+                  className="icon-btn"
+                  aria-label={`ลบจุดส่ง ${i + 1} ${p}`}
+                  onClick={() => setStops(stops.filter((_, index) => index !== i))}
+                >
+                  <X size={16} />
+                </button>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+      <div className="form-section-title">
+        ยอดเงินจากการยกเลิก <span>ไม่คิดเงินใส่ 0</span>
+      </div>
+      <label>
+        หักจาก {item.driverName} (บาท)
+        <input
+          name="deduction"
+          inputMode="decimal"
+          defaultValue="0"
+          pattern="[0-9]+(\.[0-9]{1,2})?"
+        />
+      </label>
+      <label>
+        ยอดหักนี้ให้ใคร / เข้าบัญชีใด
+        <input name="deductionRecipient" defaultValue="กองกลาง" maxLength={100} />
+      </label>
+      {replacement && (
+        <label>
+          ให้ผู้ขึ้นงานแทน (บาท)
+          <input
+            name="compensation"
+            inputMode="decimal"
+            defaultValue="0"
+            pattern="[0-9]+(\.[0-9]{1,2})?"
+          />
+        </label>
+      )}
+      <Hint>
+        ยอดหักและยอดให้คนแทนแยกกันได้ ระบบสร้างรายการ “รอดำเนินการ” ให้แต่ละคน
+        ยืนยันจ่ายหรือหักจริงได้ที่การเงิน ไม่ต้องลงรายการซ้ำ
+      </Hint>
+      <Footer
+        {...submit}
+        label={replacement ? 'ยืนยันยกเลิกและจ่ายงานให้คนแทน' : 'ยืนยันยกเลิกคิว'}
+      />
     </form>
   )
 }
@@ -362,16 +481,18 @@ export function EntryForm({ onDone }: { onDone: () => void }) {
   return (
     <form className="form" onSubmit={save}>
       <div className="kind-options">
-        {Object.entries(kinds).map(([k, v]) => (
-          <button
-            type="button"
-            key={k}
-            className={k === kind ? 'active' : ''}
-            onClick={() => setKind(k as Entry['kind'])}
-          >
-            {v}
-          </button>
-        ))}
+        {Object.entries(kinds)
+          .filter(([k]) => k !== 'replacement')
+          .map(([k, v]) => (
+            <button
+              type="button"
+              key={k}
+              className={k === kind ? 'active' : ''}
+              onClick={() => setKind(k as Entry['kind'])}
+            >
+              {v}
+            </button>
+          ))}
       </div>
       <label>
         คนรถ / ทะเบียน <b>*</b>

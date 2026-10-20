@@ -35,7 +35,7 @@ export type Entry = {
   driverId: string
   driverName: string
   plate: string
-  kind: 'advance' | 'expense' | 'repair' | 'deduction'
+  kind: 'advance' | 'expense' | 'repair' | 'deduction' | 'replacement'
   amount: number
   date: string
   recipient: string
@@ -44,6 +44,36 @@ export type Entry = {
   evidenceCount: number
   createdAt: number
   updatedAt: number
+  cancellationId?: string
+}
+export type Cancellation = {
+  id: string
+  driverId: string
+  driverName: string
+  plate: string
+  date: string
+  reason: string
+  replacementDriverId: string
+  replacementDriverName: string
+  replacementPlate: string
+  replacementJobId: string
+  replacementJobDate: string
+  replacementProvinces: string[]
+  deductionAmount: number
+  compensationAmount: number
+  deductionEntryId: string
+  compensationEntryId: string
+  actor: string
+  createdAt: number
+}
+export type CancellationInput = {
+  reason: string
+  replacementDriverId: string
+  jobDate: string
+  provinces: string[]
+  deductionAmount: number
+  compensationAmount: number
+  deductionRecipient: string
 }
 export type Evidence = { id: string; name: string; dataUrl: string }
 export type Audit = { id: string; action: string; detail: string; actor: string; createdAt: number }
@@ -53,12 +83,14 @@ export type Data = {
   jobs: Job[]
   entries: Entry[]
   audits: Audit[]
+  cancellations: Cancellation[]
 }
 export const kinds = {
   advance: 'เบิกเงิน',
   expense: 'ค่าใช้จ่าย',
   repair: 'ค่าซ่อมรถ',
   deduction: 'หักเงิน',
+  replacement: 'ค่าขึ้นงานแทน',
 }
 export const jobStates = {
   scheduled: 'รอออกงาน',
@@ -102,11 +134,29 @@ export function toSatang(value: string) {
     throw new Error('จำนวนเงินต้องมากกว่า 0 และไม่เกิน 10,000,000 บาท')
   return n
 }
+export function optionalSatang(value: string) {
+  if (!value.trim() || (/^\d+(\.\d{1,2})?$/.test(value.trim()) && Number(value) === 0)) return 0
+  return toSatang(value)
+}
 export const provinces =
   'กรุงเทพมหานคร กระบี่ กาญจนบุรี กาฬสินธุ์ กำแพงเพชร ขอนแก่น จันทบุรี ฉะเชิงเทรา ชลบุรี ชัยนาท ชัยภูมิ ชุมพร เชียงราย เชียงใหม่ ตรัง ตราด ตาก นครนายก นครปฐม นครพนม นครราชสีมา นครศรีธรรมราช นครสวรรค์ นนทบุรี นราธิวาส น่าน บึงกาฬ บุรีรัมย์ ปทุมธานี ประจวบคีรีขันธ์ ปราจีนบุรี ปัตตานี พระนครศรีอยุธยา พังงา พัทลุง พิจิตร พิษณุโลก เพชรบุรี เพชรบูรณ์ แพร่ พะเยา ภูเก็ต มหาสารคาม มุกดาหาร แม่ฮ่องสอน ยโสธร ยะลา ร้อยเอ็ด ระนอง ระยอง ราชบุรี ลพบุรี ลำปาง ลำพูน เลย ศรีสะเกษ สกลนคร สงขลา สตูล สมุทรปราการ สมุทรสงคราม สมุทรสาคร สระแก้ว สระบุรี สิงห์บุรี สุโขทัย สุพรรณบุรี สุราษฎร์ธานี สุรินทร์ หนองคาย หนองบัวลำภู อ่างทอง อุดรธานี อุทัยธานี อุตรดิตถ์ อุบลราชธานี อำนาจเจริญ'.split(
     ' ',
   )
-export const emptyData: Data = { drivers: [], queue: [], jobs: [], entries: [], audits: [] }
+export const emptyData: Data = {
+  drivers: [],
+  queue: [],
+  jobs: [],
+  entries: [],
+  audits: [],
+  cancellations: [],
+}
+export function validDate(value: string) {
+  return (
+    /^\d{4}-\d{2}-\d{2}$/.test(value) &&
+    !Number.isNaN(Date.parse(value)) &&
+    new Date(value).toISOString().slice(0, 10) === value
+  )
+}
 export function csvCell(value: unknown) {
   const v = String(value ?? '')
   return '"' + (/^[=+\-@\t\r]/.test(v) ? "'" + v : v).replaceAll('"', '""') + '"'

@@ -1,4 +1,5 @@
 import { today, shiftDate } from './model'
+import { cancellationPlan } from './cancellations'
 import type { Data } from './model'
 export function demoData(): Data {
   const now = Date.now(),
@@ -21,19 +22,58 @@ export function demoData(): Data {
     createdAt: now,
     updatedAt: now,
   }))
+  const historicalDay = shiftDate(date, -4)
+  const queuedDriver = (index: number) => ({
+    id: drivers[index].id,
+    driverId: drivers[index].id,
+    driverName: drivers[index].name,
+    plate: drivers[index].plate,
+    truckType: drivers[index].truckType,
+    joinedAt: now - 5 * 86400000,
+  })
+  const historicalCancellation = cancellationPlan(
+    queuedDriver(0),
+    queuedDriver(2),
+    {
+      reason: 'รถเข้าศูนย์ตามนัด จัดคนรถอื่นขึ้นงานแทน',
+      replacementDriverId: 'd3',
+      jobDate: historicalDay,
+      provinces: ['ขอนแก่น', 'อุดรธานี'],
+      deductionAmount: 50000,
+      compensationAmount: 30000,
+      deductionRecipient: 'กองกลาง',
+    },
+    'demo-cancellation',
+    'demo',
+    now - 4 * 86400000,
+    historicalDay,
+  )
   return {
+    cancellations: [historicalCancellation.record],
     drivers,
-    queue: drivers
-      .slice(0, 4)
-      .map((d, i) => ({
-        id: d.id,
-        driverId: d.id,
-        driverName: d.name,
-        plate: d.plate,
-        truckType: d.truckType,
-        joinedAt: now - (4 - i) * 28 * 60000,
-      })),
+    queue: drivers.slice(0, 4).map((d, i) => ({
+      id: d.id,
+      driverId: d.id,
+      driverName: d.name,
+      plate: d.plate,
+      truckType: d.truckType,
+      joinedAt: now - (4 - i) * 28 * 60000,
+    })),
     jobs: [
+      { ...historicalCancellation.job!, status: 'completed' },
+      ...[0, 3].map((index) => ({
+        id: `history-${index}`,
+        driverId: drivers[index].id,
+        driverName: drivers[index].name,
+        plate: drivers[index].plate,
+        truckType: drivers[index].truckType,
+        date: shiftDate(date, -2 - index),
+        provinces: index === 0 ? ['เชียงใหม่', 'ลำพูน'] : ['ชลบุรี'],
+        status: 'completed' as const,
+        note: '',
+        createdAt: now - (2 + index) * 86400000,
+        updatedAt: now - 86400000,
+      })),
       {
         id: 'j1',
         driverId: 'd5',
@@ -75,6 +115,22 @@ export function demoData(): Data {
       },
     ],
     entries: [
+      ...historicalCancellation.entries.map((e) => ({ ...e, status: 'paid' as const })),
+      {
+        id: 'history-advance',
+        driverId: 'd1',
+        driverName: drivers[0].name,
+        plate: drivers[0].plate,
+        kind: 'advance',
+        amount: 420000,
+        date: shiftDate(date, -2),
+        recipient: drivers[0].name,
+        description: 'เบิกค่าเดินทาง เชียงใหม่–ลำพูน',
+        status: 'paid',
+        evidenceCount: 0,
+        createdAt: now - 2 * 86400000,
+        updatedAt: now - 2 * 86400000,
+      },
       {
         id: 'e1',
         driverId: 'd5',

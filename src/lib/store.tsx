@@ -16,8 +16,18 @@ import {
 } from 'firebase/firestore'
 import { auth, db, errorMessage, isDemo, resumeAuth } from './firebase'
 import { demoData } from './demo'
+import { cancellationPlan, cancelQueueTransaction } from './cancellations'
 import { emptyData, today } from './model'
-import type { Audit, Data, Driver, Entry, Evidence, Job, QueueItem } from './model'
+import type {
+  Audit,
+  CancellationInput,
+  Data,
+  Driver,
+  Entry,
+  Evidence,
+  Job,
+  QueueItem,
+} from './model'
 
 type Store = {
   data: Data
@@ -38,7 +48,7 @@ type Store = {
     id?: string,
   ) => Promise<void>
   joinQueue: (id: string) => Promise<void>
-  cancelQueue: (id: string, reason: string) => Promise<void>
+  cancelQueue: (id: string, input: CancellationInput) => Promise<void>
   moveToEnd: (item: QueueItem) => Promise<void>
   saveJob: (q: QueueItem, date: string, provinces: string[], note: string) => Promise<void>
   jobStatus: (j: Job, status: Job['status']) => Promise<void>
@@ -57,7 +67,8 @@ function initialDemo(): Data {
     const v = localStorage.getItem(demoKey)
     if (v) {
       const d = JSON.parse(v)
-      if (d.drivers && d.queue && d.jobs && d.entries && d.audits) return d
+      if (d.drivers && d.queue && d.jobs && d.entries && d.audits)
+        return { ...emptyData, ...d, cancellations: d.cancellations || [] }
     }
   } catch {}
   return demoData()
@@ -121,7 +132,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
     const subs = [
       onSnapshot(
-        query(collection(db, 'queue'), orderBy('joinedAt'), limit(200)),
+        query(collection(db, 'queue'), orderBy('joinedAt')),
         (s) => {
           setData((d) => ({
             ...d,
@@ -275,26 +286,37 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       tx.set(doc(collection(db!, 'audits')), audit('ลงคิว', d.data().name))
     })
   }
-  const cancelQueue: Store['cancelQueue'] = async (id, reason) => {
+  const cancelQueue: Store['cancelQueue'] = async (id, input) => {
     requireAdmin()
-    if (!reason.trim()) throw new Error('กรุณาระบุเหตุผลยกเลิก')
     if (isDemo) {
+      const item = data.queue.find((q) => q.id === id)
+      if (!item) throw new Error('คิวนี้ถูกเปลี่ยนไปแล้ว')
+      const replacement = data.queue.find((q) => q.id === input.replacementDriverId)
+      const driver = data.drivers.find((d) => d.id === input.replacementDriverId)
+      if (replacement && (!driver?.active || driver.activeJobId))
+        throw new Error('ผู้ขึ้นงานแทนไม่พร้อมรับงาน')
+      const plan = cancellationPlan(item, replacement, input, crypto.randomUUID(), 'demo')
       demoUpdate(
-        (d) => ({ ...d, queue: d.queue.filter((q) => q.id !== id) }),
+        (d) => ({
+          ...d,
+          queue: d.queue.filter((q) => q.id !== id && q.id !== replacement?.id),
+          jobs: plan.job ? [...d.jobs, plan.job] : d.jobs,
+          entries: [...plan.entries, ...d.entries],
+          cancellations: [plan.record, ...d.cancellations],
+          drivers: plan.job
+            ? d.drivers.map((driver) =>
+                driver.id === replacement?.driverId
+                  ? { ...driver, activeJobId: plan.job!.id, updatedAt: plan.record.createdAt }
+                  : driver,
+              )
+            : d.drivers,
+        }),
         'ยกเลิกคิว',
-        `${data.queue.find((q) => q.id === id)?.driverName} · ${reason}`,
+        `${item.driverName} · ${input.reason}${replacement ? ` · ขึ้นแทนโดย ${replacement.driverName}` : ''}`,
       )
       return
     }
-    await runTransaction(db!, async (tx) => {
-      const q = await tx.get(doc(db!, 'queue', id))
-      if (!q.exists()) throw new Error('คิวนี้ถูกเปลี่ยนไปแล้ว')
-      tx.delete(q.ref)
-      tx.set(
-        doc(collection(db!, 'audits')),
-        audit('ยกเลิกคิว', `${q.data().driverName} · ${reason}`),
-      )
-    })
+    await cancelQueueTransaction(db!, id, input, email)
   }
   const moveToEnd: Store['moveToEnd'] = async (item) => {
     requireAdmin()

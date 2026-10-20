@@ -6,6 +6,11 @@ import {
 } from '@firebase/rules-unit-testing'
 import type { RulesTestEnvironment } from '@firebase/rules-unit-testing'
 import { readFileSync } from 'node:fs'
+import { cancellationPlan, cancelQueueTransaction } from '../lib/cancellations'
+import { today } from '../lib/model'
+import type { CancellationInput, Job, QueueItem } from '../lib/model'
+import { readReportRange } from '../lib/reports'
+import type { Firestore } from 'firebase/firestore'
 import {
   collection,
   doc,
@@ -83,6 +88,144 @@ beforeAll(async () => {
   env = await initializeTestEnvironment({
     projectId: 'demo-queue-car',
     firestore: { host: '127.0.0.1', port: 8085, rules: readFileSync('firestore.rules', 'utf8') },
+  })
+})
+describe('cancellation, replacement and range reporting', () => {
+  const input: CancellationInput = {
+    reason: 'รถเสีย',
+    replacementDriverId: 'd2',
+    jobDate: today(),
+    provinces: ['ชลบุรี', 'ระยอง'],
+    deductionAmount: 50025,
+    compensationAmount: 30050,
+    deductionRecipient: 'กองกลาง',
+  }
+  async function replacementSeed() {
+    await env.withSecurityRulesDisabled(async (c) => {
+      await setDoc(doc(c.firestore(), 'drivers', 'd2'), {
+        ...driver,
+        name: 'คนแทน',
+        plate: '70-0002',
+      })
+      await setDoc(doc(c.firestore(), 'queue', 'd2'), {
+        ...q,
+        driverId: 'd2',
+        driverName: 'คนแทน',
+        plate: '70-0002',
+        joinedAt: 2,
+      })
+    })
+  }
+  it('atomically cancels original, assigns replacement and links unequal pending money entries', async () => {
+    await replacementSeed()
+    const db = owner() as unknown as Firestore
+    const p = await cancelQueueTransaction(db, 'd1', input, ownerEmail)
+    expect((await getDoc(doc(db, 'queue', 'd1'))).exists()).toBe(false)
+    expect((await getDoc(doc(db, 'queue', 'd2'))).exists()).toBe(false)
+    expect((await getDoc(doc(db, 'drivers', 'd2'))).data()?.activeJobId).toBe(p.job?.id)
+    expect((await getDoc(doc(db, 'entries', p.record.deductionEntryId))).data()?.amount).toBe(50025)
+    expect((await getDoc(doc(db, 'entries', p.record.compensationEntryId))).data()?.status).toBe(
+      'pending',
+    )
+    const publicJob = (
+      await getDoc(doc(env.unauthenticatedContext().firestore(), 'jobs', p.job!.id))
+    ).data()
+    expect(publicJob).not.toHaveProperty('reason')
+    expect(publicJob).not.toHaveProperty('deductionAmount')
+    await assertFails(
+      getDocs(collection(env.unauthenticatedContext().firestore(), 'cancellations')),
+    )
+    await assertFails(getDocs(collection(outsider(), 'cancellations')))
+    await assertSucceeds(
+      updateDoc(doc(db, 'entries', p.record.deductionEntryId), { status: 'paid', updatedAt: 2 }),
+    )
+    await assertFails(updateDoc(doc(db, 'cancellations', p.record.id), { deductionAmount: 1 }))
+  })
+  it('supports a cancellation without any money or replacement', async () => {
+    const db = owner() as unknown as Firestore
+    const p = await cancelQueueTransaction(
+      db,
+      'd1',
+      { ...input, replacementDriverId: '', deductionAmount: 0, compensationAmount: 0 },
+      ownerEmail,
+    )
+    expect(p.job).toBeUndefined()
+    expect(p.entries).toHaveLength(0)
+    expect((await getDoc(doc(db, 'cancellations', p.record.id))).exists()).toBe(true)
+    expect((await getDocs(collection(db, 'entries'))).size).toBe(1)
+  })
+  it('prevents duplicate payments when two clients cancel the same queue concurrently', async () => {
+    await replacementSeed()
+    const db = owner() as unknown as Firestore
+    const results = await Promise.allSettled([
+      cancelQueueTransaction(db, 'd1', input, ownerEmail),
+      cancelQueueTransaction(db, 'd1', input, ownerEmail),
+    ])
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1)
+    expect((await getDocs(collection(db, 'cancellations'))).size).toBe(1)
+    expect((await getDocs(collection(db, 'entries'))).size).toBe(3)
+  })
+  it('leaves the original queue intact when replacement is no longer available', async () => {
+    const db = owner() as unknown as Firestore
+    await expect(cancelQueueTransaction(db, 'd1', input, ownerEmail)).rejects.toThrow()
+    expect((await getDoc(doc(db, 'queue', 'd1'))).exists()).toBe(true)
+    expect((await getDocs(collection(db, 'cancellations'))).empty).toBe(true)
+  })
+  it('rejects incomplete or tampered accounting batches without partially cancelling a queue', async () => {
+    const db = owner() as unknown as Firestore
+    const p = cancellationPlan(
+      { id: 'd1', ...q } as QueueItem,
+      undefined,
+      {
+        ...input,
+        replacementDriverId: '',
+        compensationAmount: 0,
+      },
+      'c_bad',
+      ownerEmail,
+    )
+    const { id, ...record } = p.record
+    const b = writeBatch(db)
+    b.set(doc(db, 'cancellations', id), record)
+    b.delete(doc(db, 'queue', 'd1'))
+    const { id: entryId, ...value } = p.entries[0]
+    b.set(doc(db, 'entries', entryId), { ...value, amount: value.amount + 1 })
+    await assertFails(b.commit())
+    expect((await getDoc(doc(db, 'queue', 'd1'))).exists()).toBe(true)
+    expect((await getDoc(doc(db, 'cancellations', id))).exists()).toBe(false)
+    await assertFails(
+      setDoc(doc(db, 'entries', 'orphan'), {
+        ...entry,
+        kind: 'replacement',
+        cancellationId: 'missing',
+      }),
+    )
+    await assertFails(setDoc(doc(db, 'entries', 'orphan2'), { ...entry, kind: 'replacement' }))
+  })
+  it('paginates every record across a date range, including tied dates, without duplication', async () => {
+    await env.withSecurityRulesDisabled(async (c) => {
+      for (let i = 0; i < 5; i++)
+        await setDoc(doc(c.firestore(), 'jobs', `range${i}`), {
+          ...job,
+          date: i === 4 ? '2026-11-01' : i === 0 ? '2026-09-30' : '2026-10-01',
+        })
+    })
+    const rows = await readReportRange<Job>(
+      env.unauthenticatedContext().firestore() as unknown as Firestore,
+      'jobs',
+      { start: '2026-09-30', end: '2026-10-20' },
+      () => false,
+      2,
+    )
+    expect(rows).toHaveLength(5)
+    expect(new Set(rows.map((j) => j.id)).size).toBe(5)
+    expect(rows.some((j) => j.date === '2026-11-01')).toBe(false)
+    await expect(
+      readReportRange(owner() as unknown as Firestore, 'jobs', {
+        start: '2026-10-21',
+        end: '2026-10-20',
+      }),
+    ).rejects.toThrow()
   })
 })
 beforeEach(async () => {

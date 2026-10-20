@@ -5,6 +5,7 @@ import '@fontsource/noto-sans-thai/500.css'
 import '@fontsource/noto-sans-thai/600.css'
 import '@fontsource/noto-sans-thai/700.css'
 import './styles.css'
+import './workspace.css'
 import App from './App'
 import { StoreProvider } from './lib/store'
 ReactDOM.createRoot(document.getElementById('root')!).render(

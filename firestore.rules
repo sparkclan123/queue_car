@@ -38,9 +38,18 @@ service cloud.firestore {
    allow delete: if false;
   }
   match /entries/{id} {
-   function valid() { let d=request.resource.data; return d.keys().hasOnly(['driverId','driverName','plate','kind','amount','date','recipient','description','status','evidenceCount','createdAt','updatedAt']) && required(d.driverId,100) && required(d.driverName,80) && required(d.plate,30) && d.kind in ['advance','expense','repair','deduction'] && d.amount is int && d.amount > 0 && d.amount <= 1000000000 && validDate(d.date) && required(d.recipient,100) && required(d.description,500) && d.status in ['pending','paid','void'] && d.evidenceCount is int && d.evidenceCount>=0 && d.evidenceCount<=3 && d.createdAt is int && d.updatedAt is int; }
+   function valid() { let d=request.resource.data; return d.keys().hasOnly(['driverId','driverName','plate','kind','amount','date','recipient','description','status','evidenceCount','createdAt','updatedAt','cancellationId']) && required(d.driverId,100) && required(d.driverName,80) && required(d.plate,30) && d.kind in ['advance','expense','repair','deduction','replacement'] && d.amount is int && d.amount > 0 && d.amount <= 1000000000 && validDate(d.date) && required(d.recipient,100) && required(d.description,500) && d.status in ['pending','paid','void'] && d.evidenceCount is int && d.evidenceCount>=0 && d.evidenceCount<=3 && d.createdAt is int && d.updatedAt is int && (!('cancellationId' in d) || required(d.cancellationId,100)); }
+   function cancellationLink() {
+    let d = request.resource.data;
+    let c = getAfter(/databases/$(database)/documents/cancellations/$(d.cancellationId)).data;
+    return d.date == c.date && d.createdAt == c.createdAt && d.evidenceCount == 0 &&
+      ((d.kind == 'deduction' && id == c.deductionEntryId && d.driverId == c.driverId &&
+        d.driverName == c.driverName && d.plate == c.plate && d.amount == c.deductionAmount) ||
+       (d.kind == 'replacement' && id == c.compensationEntryId && d.driverId == c.replacementDriverId &&
+        d.driverName == c.replacementDriverName && d.plate == c.replacementPlate && d.amount == c.compensationAmount));
+   }
    allow read: if admin();
-   allow create: if admin() && valid() && request.resource.data.status == 'pending' && exists(/databases/$(database)/documents/drivers/$(request.resource.data.driverId));
+   allow create: if admin() && valid() && request.resource.data.status == 'pending' && exists(/databases/$(database)/documents/drivers/$(request.resource.data.driverId)) && (('cancellationId' in request.resource.data) ? cancellationLink() : request.resource.data.kind != 'replacement');
    allow update: if admin() && valid() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','updatedAt']) && ((resource.data.status=='pending' && request.resource.data.status in ['paid','void']) || (resource.data.status=='paid' && request.resource.data.status=='void'));
    allow delete: if false;
    match /evidence/{evidenceId} {
@@ -48,6 +57,48 @@ service cloud.firestore {
     allow create: if admin() && !exists(/databases/$(database)/documents/entries/$(id)) && existsAfter(/databases/$(database)/documents/entries/$(id)) && request.resource.data.keys().hasOnly(['name','dataUrl']) && required(request.resource.data.name,120) && str(request.resource.data.dataUrl,600000) && request.resource.data.dataUrl.matches('^data:image/jpeg;base64,[A-Za-z0-9+/=]+$');
     allow update,delete: if false;
    }
+  }
+  match /cancellations/{id} {
+   function amount(n) { return n is int && n >= 0 && n <= 1000000000; }
+   function linkedEntry(entryId, driverId, kind, value) {
+    let e = getAfter(/databases/$(database)/documents/entries/$(entryId)).data;
+    return e.cancellationId == id && e.driverId == driverId && e.kind == kind &&
+      e.amount == value && e.status == 'pending' && e.date == request.resource.data.date;
+   }
+   function replacement() {
+    let d = request.resource.data;
+    let j = getAfter(/databases/$(database)/documents/jobs/$(d.replacementJobId)).data;
+    return d.replacementDriverId != d.driverId && d.replacementJobId == id + '_job' &&
+      j.driverId == d.replacementDriverId && j.driverName == d.replacementDriverName &&
+      j.plate == d.replacementPlate && j.date == d.replacementJobDate &&
+      j.provinces == d.replacementProvinces &&
+      j.status in ['running','scheduled'];
+   }
+   function valid() {
+    let d = request.resource.data;
+    let q = get(/databases/$(database)/documents/queue/$(d.driverId)).data;
+    return d.keys().hasOnly(['driverId','driverName','plate','date','reason','replacementDriverId',
+      'replacementDriverName','replacementPlate','replacementJobId','replacementJobDate','replacementProvinces',
+      'deductionAmount','compensationAmount','deductionEntryId','compensationEntryId','actor','createdAt']) &&
+      required(d.driverId,100) && d.driverName == q.driverName && d.plate == q.plate &&
+      validDate(d.date) && required(d.reason,200) && d.actor == request.auth.token.email &&
+      d.createdAt is int && amount(d.deductionAmount) && amount(d.compensationAmount) &&
+      str(d.replacementDriverId,100) && str(d.replacementDriverName,80) && str(d.replacementPlate,30) &&
+      str(d.replacementJobId,100) && str(d.replacementJobDate,10) && d.replacementProvinces is list &&
+      str(d.deductionEntryId,100) && str(d.compensationEntryId,100) &&
+      !existsAfter(/databases/$(database)/documents/queue/$(d.driverId)) &&
+      (d.replacementDriverId == ''
+        ? (d.replacementDriverName == '' && d.replacementPlate == '' && d.replacementJobId == '' &&
+           d.replacementJobDate == '' && d.replacementProvinces.size() == 0 && d.compensationAmount == 0)
+        : replacement()) &&
+      (d.deductionAmount == 0 ? d.deductionEntryId == '' :
+        (d.deductionEntryId == id + '_deduction' && linkedEntry(d.deductionEntryId, d.driverId, 'deduction', d.deductionAmount))) &&
+      (d.compensationAmount == 0 ? d.compensationEntryId == '' :
+        (d.compensationEntryId == id + '_replacement' && linkedEntry(d.compensationEntryId, d.replacementDriverId, 'replacement', d.compensationAmount)));
+   }
+   allow read: if admin();
+   allow create: if admin() && valid();
+   allow update, delete: if false;
   }
   match /audits/{id} {
    allow read: if admin();
