@@ -30,6 +30,9 @@ export function Modal({
     d?.showModal()
     return () => d?.close()
   }, [])
+  useEffect(() => {
+    ref.current?.querySelector<HTMLButtonElement>('.modal-head button')?.focus()
+  }, [title])
   return (
     <dialog
       ref={ref}

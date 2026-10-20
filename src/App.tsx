@@ -57,7 +57,7 @@ import {
 type Page = 'dashboard' | 'queue' | 'jobs' | 'finance' | 'drivers' | 'activity'
 type Dialog =
   | { type: 'login' | 'queue' | 'driver' | 'entry' | 'help'; driver?: Driver }
-  | { type: 'job' | 'cancel-queue'; item: QueueItem }
+  | { type: 'job' | 'cancel-queue' | 'queue-actions'; item: QueueItem }
   | { type: 'job-detail'; job: Job }
   | { type: 'entry-detail'; entry: Entry }
   | { type: 'confirm'; title: string; text: string; label: string; action: () => Promise<void> }
@@ -113,9 +113,10 @@ export default function App() {
     const t = setTimeout(() => setToast(''), 3500)
     return () => clearTimeout(t)
   }, [toast])
-  function navigate(p: Page) {
+  function navigate(p: Page, filter = 'all') {
     setPage(p)
     setSearch('')
+    setJobFilter(filter)
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
   function done() {
@@ -137,22 +138,28 @@ export default function App() {
   }
   const newQueue = () => setDialog({ type: 'queue' }),
     newEntry = () => setDialog({ type: 'entry' })
+  const dayJobs = jobs.filter((j) => j.status !== 'cancelled')
+  const destinationCount = new Set(dayJobs.flatMap((j) => j.provinces)).size
   const summary = [
     {
-      label: 'รอในคิว',
+      label: 'รอคิว',
       value: queue.length,
       unit: 'คัน',
       icon: ClipboardList,
       color: 'green',
       detail: 'พร้อมรับงานถัดไป',
+      page: 'queue' as const,
+      filter: 'all',
     },
     {
-      label: 'กำลังวิ่งงาน',
+      label: 'กำลังวิ่ง',
       value: jobs.filter((j) => j.status === 'running').length,
       unit: 'คัน',
       icon: Truck,
       color: 'blue',
       detail: `วันที่ ${dateLabel(s.day)}`,
+      page: 'jobs' as const,
+      filter: 'running',
     },
     {
       label: 'จบงานแล้ว',
@@ -161,16 +168,19 @@ export default function App() {
       icon: Check,
       color: 'orange',
       detail: `วันที่ ${dateLabel(s.day)}`,
-    },
-    {
-      label: 'จังหวัดปลายทาง',
-      value: new Set(jobs.filter((j) => j.status !== 'cancelled').flatMap((j) => j.provinces)).size,
-      unit: 'จังหวัด',
-      icon: MapPin,
-      color: 'purple',
-      detail: 'รวมทุกจุดพ่วงในวันนั้น',
+      page: 'jobs' as const,
+      filter: 'completed',
     },
   ]
+  function moveQueueToEnd(item: QueueItem) {
+    setDialog({
+      type: 'confirm',
+      title: 'ย้ายไปท้ายคิว',
+      text: `ย้าย ${item.driverName} ทะเบียน ${item.plate} ไปต่อท้ายคิวปัจจุบัน เวลาลงคิวจะเปลี่ยนเป็นเวลาใหม่`,
+      label: 'ยืนยันย้ายไปท้ายคิว',
+      action: () => s.moveToEnd(item),
+    })
+  }
   function dateControl() {
     return (
       <div className="date-control">
@@ -184,7 +194,7 @@ export default function App() {
         <label>
           <CalendarDays size={16} />
           <span>
-            {s.day === today() ? 'วันนี้ · ' : ''}
+            {s.day === today() && <span className="date-today">วันนี้ · </span>}
             {dateLabel(s.day)}
           </span>
           <input
@@ -212,19 +222,26 @@ export default function App() {
     )
   }
   function queueContent(compact = false) {
-    const list = queue.filter((q) => `${q.driverName} ${q.plate}`.includes(compact ? '' : search))
+    const list = compact
+      ? queue.slice(0, 4)
+      : queue.filter((q) => `${q.driverName} ${q.plate}`.includes(search))
     return (
       <>
         {list.length ? (
-          <div className="queue-list">
+          <div className={`queue-list ${compact ? 'queue-preview' : ''}`}>
             {list.map((q, i) => (
-              <div className={`queue-row ${i === 0 ? 'first' : ''}`} key={q.id}>
+              <div
+                className={`queue-row ${queue.indexOf(q) === 0 ? 'first' : ''} ${s.admin ? 'managed' : ''}`}
+                key={q.id}
+              >
                 <div className="queue-number">{String(queue.indexOf(q) + 1).padStart(2, '0')}</div>
-                <Avatar name={q.driverName} index={i} />
+                {!compact && <Avatar name={q.driverName} index={i} />}
                 <div className="queue-person">
                   <strong>
                     {q.driverName}
-                    {queue.indexOf(q) === 0 && <span className="next-label">คิวถัดไป</span>}
+                    {!compact && queue.indexOf(q) === 0 && (
+                      <span className="next-label">คิวถัดไป</span>
+                    )}
                   </strong>
                   <span>
                     <span className="plate">{q.plate}</span>
@@ -246,7 +263,17 @@ export default function App() {
                     }).format(q.joinedAt)}
                   </small>
                 </div>
-                {s.admin && (
+                {s.admin && compact && (
+                  <button
+                    className="icon-btn queue-more"
+                    aria-label={`จัดการคิว ${q.driverName}`}
+                    aria-haspopup="dialog"
+                    onClick={() => setDialog({ type: 'queue-actions', item: q })}
+                  >
+                    <MoreHorizontal size={20} />
+                  </button>
+                )}
+                {s.admin && !compact && (
                   <div className="row-actions">
                     <button
                       className="btn small primary-light"
@@ -258,15 +285,7 @@ export default function App() {
                       className="icon-btn"
                       aria-label={`ย้ายไปท้ายคิว ${q.driverName}`}
                       title="ย้ายไปท้ายคิว"
-                      onClick={() =>
-                        setDialog({
-                          type: 'confirm',
-                          title: 'ย้ายไปท้ายคิว',
-                          text: `ย้าย ${q.driverName} ทะเบียน ${q.plate} ไปต่อท้ายคิวปัจจุบัน เวลาลงคิวจะเปลี่ยนเป็นเวลาใหม่`,
-                          label: 'ยืนยันย้ายไปท้ายคิว',
-                          action: () => s.moveToEnd(q),
-                        })
-                      }
+                      onClick={() => moveQueueToEnd(q)}
                     >
                       <ListEnd size={17} />
                     </button>
@@ -342,7 +361,7 @@ export default function App() {
     )
   }
   const headerTitles: Record<Page, [string, string]> = {
-    dashboard: ['ภาพรวมการเดินรถ', 'ทุกคิว ทุกเส้นทาง จัดการได้ในที่เดียว'],
+    dashboard: ['ภาพรวม', 'คิวรถปัจจุบัน และงานวิ่งตามวันที่เลือก'],
     queue: ['คิวรถปัจจุบัน', 'เรียงตามลำดับลงคิว พร้อมสำหรับงานถัดไป'],
     jobs: ['งานวิ่งประจำวัน', 'ติดตามรถและจังหวัดปลายทางในแต่ละเที่ยว'],
     finance: ['การเงินคนรถ', 'เบิกเงิน ค่าใช้จ่าย ค่าซ่อม และรายการหักเงิน'],
@@ -448,7 +467,8 @@ export default function App() {
           {s.demo && (
             <div className="demo-banner">
               <span>
-                <strong>พื้นที่ทดลอง</strong> ข้อมูลสมมติ · ไม่บันทึกลงระบบจริง
+                <strong>ข้อมูลตัวอย่าง</strong>
+                <span className="demo-detail"> · ไม่บันทึกลงระบบจริง</span>
               </span>
               <button
                 onClick={() => {
@@ -502,7 +522,7 @@ export default function App() {
             </div>
             <div className="heading-actions">
               {['dashboard', 'jobs'].includes(page) && dateControl()}
-              {s.admin && (
+              {s.admin && page !== 'dashboard' && (
                 <button
                   className="btn primary"
                   onClick={() =>
@@ -552,9 +572,14 @@ export default function App() {
                     </div>
                     <MapArt />
                   </section>
-                  <div className="stats-grid">
+                  <div className="stats-grid overview-stats" aria-label="สรุปคิวและงานวิ่ง">
                     {summary.map((x) => (
-                      <div className="stat-card" key={x.label}>
+                      <button
+                        className={`stat-card stat-${x.color}`}
+                        key={x.label}
+                        aria-label={`${x.label} ${x.value} ${x.unit} · ${x.detail}`}
+                        onClick={() => navigate(x.page, x.filter)}
+                      >
                         <div className="stat-top">
                           <span>{x.label}</span>
                           <span className={`stat-icon ${x.color}`}>
@@ -566,7 +591,7 @@ export default function App() {
                           <span>{x.unit}</span>
                         </div>
                         <small>{x.detail}</small>
-                      </div>
+                      </button>
                     ))}
                   </div>
                   <div className="dashboard-grid">
@@ -577,28 +602,40 @@ export default function App() {
                             <ClipboardList size={19} />
                             คิวรถตอนนี้ <span className="count">{queue.length}</span>
                           </h2>
-                          <p>เรียงตามเวลาลงคิว · อัปเดตอัตโนมัติ</p>
+                          <p>ลำดับแรกพร้อมรับงานถัดไป</p>
                         </div>
-                        <span className="live-pill">
-                          <Radio size={13} /> LIVE
-                        </span>
+                        {s.admin ? (
+                          <button className="btn primary small queue-add" onClick={newQueue}>
+                            <Plus size={16} /> ลงคิว
+                          </button>
+                        ) : (
+                          <span className="live-pill">
+                            <Radio size={13} /> อัปเดตสด
+                          </span>
+                        )}
                       </div>
                       {queueContent(true)}
                       <div className="panel-footer">
-                        <span>
-                          <ShieldCheck size={14} />
-                          {s.admin ? 'คุณสามารถจัดการคิวได้' : 'ทุกคนดูคิวได้ ไม่ต้องเข้าสู่ระบบ'}
-                        </span>
                         <button className="text-btn" onClick={() => navigate('queue')}>
-                          ดูทั้งหมด <ArrowRight size={14} />
+                          {queue.length > 4
+                            ? `ดูคิวทั้งหมด ${queue.length} คัน · อีก ${queue.length - 4} คัน`
+                            : s.admin
+                              ? 'จัดการคิวทั้งหมด'
+                              : 'ดูคิวทั้งหมด'}
+                          <ArrowRight size={15} />
                         </button>
                       </div>
                     </section>
                     <section className="daily-panel">
                       <div className="panel-heading">
                         <div>
-                          <h2>{s.day === today() ? 'เส้นทางวันนี้' : 'เส้นทางวันที่เลือก'}</h2>
-                          <p>{dateLabel(s.day, true)}</p>
+                          <h2>
+                            {s.day === today() ? 'งานวิ่งวันนี้' : 'งานวิ่งวันที่เลือก'}
+                            <span className="count">{dayJobs.length}</span>
+                          </h2>
+                          <p>
+                            {dateLabel(s.day)} · {destinationCount} จังหวัด
+                          </p>
                         </div>
                         <button
                           className="icon-btn"
@@ -609,18 +646,17 @@ export default function App() {
                         </button>
                       </div>
                       <div className="daily-jobs">
-                        {jobs
-                          .filter((j) => j.status !== 'cancelled')
-                          .slice(0, 3)
-                          .map(jobCard)}
-                        {!jobs.filter((j) => j.status !== 'cancelled').length && (
+                        {dayJobs.slice(0, 3).map(jobCard)}
+                        {!dayJobs.length && (
                           <Empty
-                            title="ยังไม่มีงานในวันนี้"
+                            title={
+                              s.day === today() ? 'ยังไม่มีงานวันนี้' : 'ยังไม่มีงานในวันที่เลือก'
+                            }
                             detail="งานและเส้นทางจะแสดงเมื่อมีการจ่ายงาน"
                           />
                         )}
                       </div>
-                      {jobs.length > 0 && (
+                      {dayJobs.length > 0 && (
                         <button className="all-jobs" onClick={() => navigate('jobs')}>
                           ดูงานวิ่งทั้งหมด <ArrowRight size={15} />
                         </button>
@@ -1099,19 +1135,21 @@ export default function App() {
                   ? dialog.driver
                     ? 'แก้ไขข้อมูลคนรถ'
                     : 'เพิ่มคนรถ'
-                  : dialog.type === 'job'
-                    ? 'จ่ายงานวิ่ง'
-                    : dialog.type === 'cancel-queue'
-                      ? 'ยกเลิกคิว'
-                      : dialog.type === 'entry'
-                        ? 'เพิ่มรายการการเงิน'
-                        : dialog.type === 'job-detail'
-                          ? 'รายละเอียดงานวิ่ง'
-                          : dialog.type === 'entry-detail'
-                            ? 'รายละเอียดการเงิน'
-                            : dialog.type === 'confirm'
-                              ? dialog.title
-                              : 'ใช้งานคิวรถ'
+                  : dialog.type === 'queue-actions'
+                    ? 'จัดการคิวรถ'
+                    : dialog.type === 'job'
+                      ? 'จ่ายงานวิ่ง'
+                      : dialog.type === 'cancel-queue'
+                        ? 'ยกเลิกคิว'
+                        : dialog.type === 'entry'
+                          ? 'เพิ่มรายการการเงิน'
+                          : dialog.type === 'job-detail'
+                            ? 'รายละเอียดงานวิ่ง'
+                            : dialog.type === 'entry-detail'
+                              ? 'รายละเอียดการเงิน'
+                              : dialog.type === 'confirm'
+                                ? dialog.title
+                                : 'ใช้งานคิวรถ'
           }
           onClose={() => setDialog(null)}
         >
@@ -1122,6 +1160,46 @@ export default function App() {
             <QueueForm onDone={done} onAddDriver={() => setDialog({ type: 'driver' })} />
           )}
           {dialog.type === 'driver' && <DriverForm driver={dialog.driver} onDone={done} />}
+          {dialog.type === 'queue-actions' && s.admin && (
+            <div className="form queue-action-sheet">
+              <div className="selected-person">
+                <Avatar name={dialog.item.driverName} />
+                <div>
+                  <strong>{dialog.item.driverName}</strong>
+                  <small>
+                    {dialog.item.plate} · {dialog.item.truckType}
+                  </small>
+                </div>
+              </div>
+              <button onClick={() => setDialog({ type: 'job', item: dialog.item })}>
+                <Truck size={20} />
+                <span>
+                  <strong>จ่ายงานวิ่ง</strong>
+                  <small>เลือกจังหวัดและเส้นทางให้รถคันนี้</small>
+                </span>
+                <ChevronRight size={17} />
+              </button>
+              <button onClick={() => moveQueueToEnd(dialog.item)}>
+                <ListEnd size={20} />
+                <span>
+                  <strong>ย้ายไปท้ายคิว</strong>
+                  <small>ลงคิวใหม่ต่อท้ายรถคันอื่น</small>
+                </span>
+                <ChevronRight size={17} />
+              </button>
+              <button
+                className="danger-text"
+                onClick={() => setDialog({ type: 'cancel-queue', item: dialog.item })}
+              >
+                <X size={20} />
+                <span>
+                  <strong>ยกเลิกคิว</strong>
+                  <small>นำรถออกจากคิว พร้อมระบุเหตุผล</small>
+                </span>
+                <ChevronRight size={17} />
+              </button>
+            </div>
+          )}
           {dialog.type === 'job' && <JobForm item={dialog.item} onDone={done} />}
           {dialog.type === 'cancel-queue' && <CancelQueueForm item={dialog.item} onDone={done} />}
           {dialog.type === 'entry' && <EntryForm onDone={done} />}

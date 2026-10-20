@@ -2802,29 +2802,352 @@ main {
     flex-basis: 125px;
   }
 }
-/* Keep the current queue in the first mobile screen. */
+.overview-stats {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.overview-stats .stat-card {
+  appearance: none;
+  text-align: left;
+  transition:
+    border-color 0.15s,
+    background 0.15s;
+}
+.overview-stats .stat-card:hover {
+  border-color: #b9cbb7;
+  background: #fafcf8;
+}
+.overview-stats .stat-card:focus-visible {
+  outline-offset: -4px;
+}
+.date-control label:focus-within {
+  outline: 2px solid #82ba9f;
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+.queue-preview .queue-row {
+  padding-block: 13px;
+}
+.queue-preview .queue-number {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border-radius: 9px;
+}
+.queue-preview .first .queue-number {
+  background: #29634b;
+  color: white;
+}
+.queue-more {
+  min-width: 44px;
+  height: 44px;
+}
+.page-dashboard .queue-panel .panel-footer {
+  margin-top: 0;
+  padding: 0 16px;
+}
+.page-dashboard .panel-footer .text-btn {
+  min-height: 44px;
+  justify-content: center;
+  width: 100%;
+}
+.queue-action-sheet > button {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 15px 0;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  color: #315b45;
+}
+.queue-action-sheet > button:last-child {
+  border-bottom: 0;
+}
+.queue-action-sheet > button > span {
+  flex: 1;
+}
+.queue-action-sheet strong,
+.queue-action-sheet small {
+  display: block;
+}
+.queue-action-sheet > button strong {
+  font-size: 15px;
+  font-weight: 500;
+}
+.queue-action-sheet > button small {
+  margin-top: 4px;
+  font-size: 12px;
+  color: #748172;
+}
+.queue-action-sheet > .danger-text {
+  color: #ac6158;
+}
+
+/* A compact, readable overview with one row per vehicle on small screens. */
 @media (max-width: 700px) {
-  .page-dashboard .welcome-banner {
+  .topbar {
+    height: 60px;
+    padding-inline: 16px;
+  }
+  main {
+    padding: 18px 16px 96px;
+  }
+  .topbar .login-btn {
+    min-height: 44px !important;
+  }
+  .page-heading .eyebrow {
     display: none;
   }
-  .page-dashboard > .stats-grid {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 7px;
+  .page-dashboard .page-heading {
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 14px;
   }
-  .page-dashboard .stat-card {
-    padding: 12px 9px;
+  .page-dashboard .page-heading h1 {
+    font-size: 23px;
+    white-space: nowrap;
+  }
+  .page-dashboard .heading-actions {
+    width: auto;
+    min-width: 0;
+  }
+  .page-dashboard .page-heading p,
+  .page-dashboard .welcome-banner,
+  .page-dashboard .bottom-info,
+  .page-dashboard .date-control > .icon-btn,
+  .page-dashboard .date-today {
+    display: none;
+  }
+  .page-dashboard .date-control {
+    padding: 0;
+    min-height: 44px;
+    border: 0;
+    background: transparent;
+  }
+  .page-dashboard .date-control label {
+    min-height: 44px;
+    font-size: 12px;
+    gap: 6px;
+  }
+  .page-dashboard .today-btn {
+    min-height: 44px;
+    padding-inline: 6px;
+  }
+  .page-dashboard .overview-stats {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0;
+    border: 1px solid var(--border);
+    border-radius: 13px;
+    background: #fff;
+    overflow: hidden;
+    margin-bottom: 16px;
+  }
+  .page-dashboard .overview-stats .stat-card {
+    padding: 11px 14px;
+    border: 0;
+    border-right: 1px solid var(--border);
+    border-radius: 0;
+    box-shadow: none;
+  }
+  .page-dashboard .overview-stats .stat-card:last-child {
+    border-right: 0;
+  }
+  .page-dashboard .overview-stats .stat-green {
+    background: #f0f5ed;
   }
   .page-dashboard .stat-top {
-    font-size: 10px;
-    min-height: 28px;
-    align-items: flex-start;
+    font-size: 12px;
+    color: #647565;
   }
-  .page-dashboard .stat-icon,
-  .page-dashboard .stat-value > span {
+  .page-dashboard .stat-icon {
     display: none;
   }
   .page-dashboard .stat-value {
     font-size: 26px;
+    gap: 6px;
+    margin: 4px 0 0;
+    line-height: 1.25;
+  }
+  .page-dashboard .stat-blue .stat-value {
+    color: #40677b;
+  }
+  .page-dashboard .stat-value > span {
+    display: inline;
+    font-size: 11px;
+  }
+  .page-dashboard .dashboard-grid {
+    gap: 20px;
+  }
+  .page-dashboard .queue-panel > .panel-heading {
+    min-height: 58px;
+    padding: 7px 14px;
+    gap: 8px;
+  }
+  .page-dashboard .panel-heading h2 {
+    font-size: 15px;
+    gap: 7px;
+  }
+  .page-dashboard .queue-panel .panel-heading p,
+  .page-dashboard .queue-panel h2 > svg {
+    display: none;
+  }
+  .page-dashboard .live-pill {
+    font-size: 11px;
+    letter-spacing: 0;
+    padding: 5px 7px;
+  }
+  .queue-add {
+    min-height: 44px;
+    padding: 8px 12px;
+    font-size: 13px;
+  }
+  .queue-preview {
+    padding: 0 7px 4px;
+  }
+  .queue-preview .queue-row {
+    padding: 10px 7px;
+    min-height: 66px;
+    gap: 10px;
+    flex-wrap: nowrap;
+  }
+  .queue-preview .queue-number {
+    width: 28px;
+    height: 28px;
+    font-size: 13px;
+  }
+  .queue-preview .queue-person {
+    flex-basis: 0;
+  }
+  .queue-preview .queue-person strong {
+    font-size: 14px;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+  }
+  .queue-preview .queue-person > span {
+    margin-top: 2px;
+  }
+  .queue-preview .plate {
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: #758275;
+    font-size: 12px;
+  }
+  .queue-preview .queue-time {
+    flex-shrink: 0;
+    width: 48px;
+    font-size: 12px;
+    gap: 0;
+    line-height: 1.6;
+  }
+  .queue-preview .queue-time small {
+    font-size: 10px;
+  }
+  .queue-preview .queue-time > svg,
+  .queue-preview .managed .queue-time {
+    display: none;
+  }
+  .queue-preview .queue-more {
+    flex-shrink: 0;
+  }
+  .page-dashboard .queue-panel .panel-footer {
+    padding-inline: 14px;
+  }
+  .page-dashboard .panel-footer .text-btn {
+    font-size: 12px;
+  }
+  .page-dashboard .daily-panel {
     margin: 0;
+  }
+  .page-dashboard .daily-panel > .panel-heading {
+    padding: 0 2px 12px;
+  }
+  .page-dashboard .daily-panel .panel-heading p {
+    font-size: 11px;
+    margin-top: 3px;
+  }
+  .page-dashboard .daily-panel .panel-heading > .icon-btn {
+    width: 44px;
+    height: 44px;
+  }
+  .page-dashboard .daily-jobs {
+    gap: 8px;
+  }
+  .page-dashboard .job-card {
+    padding: 12px 14px;
+    border-radius: 12px;
+  }
+  .page-dashboard .job-card-top {
+    gap: 9px;
+  }
+  .page-dashboard .job-truck {
+    width: 32px;
+    height: 32px;
+    flex-shrink: 0;
+  }
+  .page-dashboard .job-person small {
+    font-size: 12px;
+    margin-top: 0;
+  }
+  .page-dashboard .job-route {
+    margin: 9px 0 0;
+    padding-top: 9px;
+    border-top: 1px solid #eef1eb;
+  }
+  .page-dashboard .job-route .route {
+    font-size: 13px;
+    line-height: 1.6;
+  }
+  .page-dashboard .job-card-bottom {
+    display: none;
+  }
+  .page-dashboard .empty {
+    padding: 22px 14px;
+  }
+  .page-dashboard .empty-icon {
+    display: none;
+  }
+  .page-dashboard .empty h3 {
+    font-size: 14px;
+  }
+  .page-dashboard .empty p {
+    font-size: 12px;
+  }
+  .page-dashboard .all-jobs {
+    min-height: 44px;
+    margin-top: 8px;
+  }
+  .page-dashboard .page-footer {
+    padding-top: 20px;
+  }
+  .page-dashboard .page-footer > span {
+    display: none;
+  }
+  .demo-banner {
+    padding: 0 10px;
+    gap: 10px;
+    margin-bottom: 14px;
+    min-height: 44px;
+    flex-wrap: nowrap;
+  }
+  .demo-banner > span {
+    min-width: 0;
+    white-space: nowrap;
+    font-size: 11px;
+  }
+  .demo-banner strong {
+    margin: 0;
+  }
+  .demo-detail {
+    display: none;
+  }
+  .demo-banner button,
+  .demo-banner a {
+    min-height: 44px;
+  }
+  .demo-banner a {
+    gap: 3px;
   }
 }
