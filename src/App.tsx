@@ -20,7 +20,6 @@ import {
   MoreHorizontal,
   Plus,
   Radio,
-  ReceiptText,
   Search,
   ShieldCheck,
   Truck,
@@ -34,6 +33,7 @@ import type { LucideIcon } from 'lucide-react'
 import { useStore } from './lib/store'
 import { useCurrentDay, useReports } from './lib/useReports'
 import { DriverReport, ReportPanel } from './components/Reports'
+import { FinanceSummary } from './components/FinanceSummary'
 import type { ReportDriver, ReportProps } from './components/Reports'
 import { errorMessage, login, logout } from './lib/firebase'
 import {
@@ -731,32 +731,7 @@ export default function App() {
                       ส่งออก CSV
                     </button>
                   </div>
-                  <div className="stats-grid finance-stats">
-                    {Object.entries(kinds).map(([k, v], i) => {
-                      const amount = entries
-                        .filter((e) => e.kind === k && e.status === 'paid')
-                        .reduce((a, e) => a + e.amount, 0)
-                      const icons = [ArrowUpRight, ReceiptText, Wrench, ArrowDownLeft]
-                      const Icon = icons[i]
-                      return (
-                        <div className="stat-card" key={k}>
-                          <div className="stat-top">
-                            <span>{v}</span>
-                            <span
-                              className={`stat-icon ${['green', 'blue', 'orange', 'purple'][i]}`}
-                            >
-                              <Icon size={18} />
-                            </span>
-                          </div>
-                          <div className="stat-value">
-                            <span className="currency">฿</span>
-                            {money(amount)}
-                          </div>
-                          <small>เฉพาะรายการที่ดำเนินการแล้ว</small>
-                        </div>
-                      )
-                    })}
-                  </div>
+                  <FinanceSummary entries={entries} />
                   <div className="toolbar">
                     <div className="search-box">
                       <Search size={18} />
