@@ -33,7 +33,7 @@ export function useSubmit(onDone: () => void) {
     },
   }
 }
-function Footer({
+export function Footer({
   busy,
   error,
   label = 'บันทึกข้อมูล',

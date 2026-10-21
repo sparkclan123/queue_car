@@ -49,6 +49,26 @@ export function demoData(): Data {
     historicalDay,
   )
   return {
+    salesContacts: [
+      {
+        id: 'sales-1',
+        name: 'คุณแพร · เซลล์ภาคตะวันออก',
+        phone: '0800000001',
+        details:
+          'ดูแลลูกค้าโซนชลบุรีและระยอง\nประสานงานรับสินค้า นัดเวลาขึ้นงาน และติดตามเอกสารส่งของ',
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: 'sales-2',
+        name: 'คุณต้น · เซลล์ภาคอีสาน',
+        phone: '0800000002',
+        details:
+          'ดูแลเส้นทางขอนแก่น–อุดรธานี–หนองคาย\nติดต่อเรื่องเที่ยวกลับและจุดส่งสินค้าของลูกค้า',
+        createdAt: now,
+        updatedAt: now,
+      },
+    ],
     cancellations: [historicalCancellation.record],
     drivers,
     queue: drivers.slice(0, 4).map((d, i) => ({

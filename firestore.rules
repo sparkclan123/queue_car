@@ -29,6 +29,13 @@ service cloud.firestore {
    allow read: if admin();
    allow create, update: if admin() && request.resource.data.keys().hasOnly(['tailAt']) && request.resource.data.tailAt is int && (!exists(/databases/$(database)/documents/settings/queue) || request.resource.data.tailAt > resource.data.tailAt);
   }
+  match /salesContacts/{id} {
+   function valid() { let d = request.resource.data; return d.keys().hasOnly(['name','phone','details','createdAt','updatedAt']) && required(d.name,100) && d.name.matches('.*[^\\s].*') && d.phone is string && d.phone.matches('^0[1-9][0-9]{7,8}$') && str(d.details,2000) && d.createdAt is int && d.updatedAt is int && d.createdAt >= 0 && d.updatedAt >= d.createdAt; }
+   allow read: if true;
+   allow create: if admin() && valid();
+   allow update: if admin() && valid() && request.resource.data.createdAt == resource.data.createdAt;
+   allow delete: if false;
+  }
   match /drivers/{id} {
    function valid() { let d=request.resource.data; return d.keys().hasOnly(['name','plate','truckType','phone','active','activeJobId','createdAt','updatedAt']) && required(d.name,80) && required(d.plate,30) && required(d.truckType,50) && str(d.phone,30) && d.active is bool && str(d.activeJobId,100) && d.createdAt is int && d.updatedAt is int; }
    allow read: if true;

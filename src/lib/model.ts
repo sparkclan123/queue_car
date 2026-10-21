@@ -1,3 +1,5 @@
+import type { SalesContact } from './sales'
+
 export type Driver = {
   id: string
   name: string
@@ -88,6 +90,7 @@ export type CancellationInput = {
 export type Evidence = { id: string; name: string; dataUrl: string }
 export type Audit = { id: string; action: string; detail: string; actor: string; createdAt: number }
 export type Data = {
+  salesContacts: SalesContact[]
   drivers: Driver[]
   queue: QueueItem[]
   jobs: Job[]
@@ -153,6 +156,7 @@ export const provinces =
     ' ',
   )
 export const emptyData: Data = {
+  salesContacts: [],
   drivers: [],
   queue: [],
   jobs: [],

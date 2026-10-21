@@ -12,6 +12,7 @@ import { changeQueueStatus } from '../lib/queue'
 import type { CancellationInput, Job, QueueItem } from '../lib/model'
 import { readReportRange } from '../lib/reports'
 import { changeMemberRole, OWNER_EMAIL } from '../lib/members'
+import { saveSalesContact } from '../lib/sales'
 import type { Firestore } from 'firebase/firestore'
 import {
   collection,
@@ -507,6 +508,71 @@ describe('Admin workflows and constraints', () => {
     }
     const results = await Promise.allSettled([assign('ja'), assign('jb')])
     expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1)
+  })
+})
+
+describe('sales contact access and persistence', () => {
+  const input = {
+    name: 'เซลล์ทดสอบ',
+    phone: '+66 81 234 5678',
+    details: 'ดูแลลูกค้า\nชลบุรีและระยอง',
+  }
+  it('admin saves and edits a contact with audit history; guests can read full details', async () => {
+    const db = owner() as unknown as Firestore
+    const id = await saveSalesContact(db, input, ownerEmail)
+    const guest = env.unauthenticatedContext().firestore()
+    const initial = (await getDoc(doc(guest, 'salesContacts', id))).data()!
+    expect(initial).toMatchObject({ name: input.name, phone: '0812345678', details: input.details })
+    await saveSalesContact(
+      db,
+      { ...input, name: 'เซลล์ชื่อใหม่', phone: '02-123-4567', details: 'ดูแลกรุงเทพฯ' },
+      ownerEmail,
+      id,
+    )
+    expect((await getDoc(doc(guest, 'salesContacts', id))).data()).toMatchObject({
+      name: 'เซลล์ชื่อใหม่',
+      phone: '021234567',
+      details: 'ดูแลกรุงเทพฯ',
+      createdAt: initial.createdAt,
+    })
+    expect((await getDocs(collection(guest, 'salesContacts'))).size).toBe(1)
+    expect((await getDocs(collection(db, 'audits'))).size).toBe(3)
+    await expect(saveSalesContact(db, input, ownerEmail, 'missing')).rejects.toThrow(
+      'ไม่พบข้อมูลเซลล์',
+    )
+  })
+  it('guest and a signed-in viewer cannot add, edit or delete sales contacts', async () => {
+    const id = await saveSalesContact(owner() as unknown as Firestore, input, ownerEmail)
+    for (const db of [env.unauthenticatedContext().firestore(), outsider()]) {
+      const record = (await getDoc(doc(db, 'salesContacts', id))).data()!
+      await assertSucceeds(getDocs(collection(db, 'salesContacts')))
+      await assertFails(setDoc(doc(db, 'salesContacts', 'new'), record))
+      await assertFails(updateDoc(doc(db, 'salesContacts', id), { phone: '0899999999' }))
+      await assertFails(deleteDoc(doc(db, 'salesContacts', id)))
+    }
+  })
+  it('rejects malformed contact records, immutable timestamp changes and hard deletes', async () => {
+    const db = owner()
+    const value = {
+      name: input.name,
+      phone: '0812345678',
+      details: input.details,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    for (const bad of [
+      { ...value, name: '' },
+      { ...value, name: '   ' },
+      { ...value, name: 'x'.repeat(101) },
+      { ...value, phone: '+12125551234' },
+      { ...value, details: 'x'.repeat(2001) },
+      { ...value, role: 'admin' },
+      { ...value, updatedAt: 0 },
+    ])
+      await assertFails(setDoc(doc(db, 'salesContacts', 'bad'), bad))
+    await assertSucceeds(setDoc(doc(db, 'salesContacts', 'valid'), value))
+    await assertFails(updateDoc(doc(db, 'salesContacts', 'valid'), { createdAt: 0 }))
+    await assertFails(deleteDoc(doc(db, 'salesContacts', 'valid')))
   })
 })
 

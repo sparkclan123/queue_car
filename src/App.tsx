@@ -8,6 +8,7 @@ import {
   ChevronLeft,
   ChevronRight,
   CircleHelp,
+  ContactRound,
   ClipboardList,
   FileText,
   LayoutDashboard,
@@ -36,6 +37,7 @@ import { PhoneLink } from './components/PhoneLink'
 import { DateInput } from './components/DateInput'
 import { MembersPanel } from './components/Members'
 import { TodayActivity } from './components/TodayActivity'
+import { SalesPanel } from './components/Sales'
 import { telephoneHref } from './lib/phone'
 import type { ReportDriver, ReportProps } from './components/Reports'
 import { errorMessage, login, logout } from './lib/firebase'
@@ -62,7 +64,8 @@ import {
   LoginPanel,
   QueueForm,
 } from './components/Forms'
-type Page = 'dashboard' | 'queue' | 'jobs' | 'finance' | 'drivers' | 'activity' | 'members'
+type Page =
+  'dashboard' | 'queue' | 'jobs' | 'finance' | 'drivers' | 'sales' | 'activity' | 'members'
 type Dialog =
   | { type: 'login' | 'queue' | 'driver' | 'entry' | 'help'; driver?: Driver }
   | { type: 'job' | 'cancel-queue' | 'queue-actions'; item: QueueItem }
@@ -76,6 +79,7 @@ const navs: { id: Page; label: string; icon: LucideIcon }[] = [
   { id: 'jobs', label: 'งานวิ่ง', icon: MapPin },
   { id: 'finance', label: 'การเงิน', icon: Wallet },
   { id: 'drivers', label: 'คนรถ', icon: Users },
+  { id: 'sales', label: 'เซลล์', icon: ContactRound },
 ]
 export default function App() {
   const s = useStore(),
@@ -356,6 +360,7 @@ export default function App() {
     jobs: ['งานวิ่งประจำวัน', 'ติดตามรถและจังหวัดปลายทางในแต่ละเที่ยว'],
     finance: ['การเงินคนรถ', 'เบิกเงิน ค่าใช้จ่าย ค่าซ่อม และรายการหักเงิน'],
     drivers: ['ทะเบียนคนรถ', 'ชื่อคนรถ ทะเบียน เบอร์โทร และสถานะรับงาน'],
+    sales: ['เซลล์', 'ชื่อ เบอร์โทร และรายละเอียดที่ดูแล'],
     activity: ['ประวัติกิจกรรม', 'การเปลี่ยนแปลงล่าสุดโดยผู้ดูแลระบบ'],
   }
   return (
@@ -532,7 +537,7 @@ export default function App() {
               </div>
               <div className="heading-actions">
                 {page === 'jobs' && dateControl()}
-                {s.admin && page !== 'members' && (
+                {s.admin && page !== 'members' && page !== 'sales' && (
                   <button
                     className="btn primary"
                     onClick={() =>
@@ -562,6 +567,7 @@ export default function App() {
           ) : (
             <>
               {page === 'members' && s.owner && <MembersPanel />}
+              {page === 'sales' && <SalesPanel />}
               {page === 'dashboard' && (
                 <>
                   <section className="dispatch-board" aria-label="คิวรถปัจจุบัน">

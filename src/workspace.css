@@ -1,3 +1,187 @@
+/* Sales contact directory */
+.sales-toolbar {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+.sales-toolbar .search-box {
+  flex: 1;
+  min-width: 0;
+}
+.sales-toolbar .search-box input {
+  min-width: 0;
+}
+.sales-toolbar .search-box input:focus {
+  box-shadow: none;
+}
+.sales-toolbar .search-box > svg {
+  flex-shrink: 0;
+}
+.sales-toolbar .btn {
+  flex-shrink: 0;
+}
+.sales-count {
+  color: #7a878d;
+  font-size: 12px;
+  margin: 16px 0 12px;
+}
+.sales-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+.sales-card {
+  background: #fff;
+  border: 1px solid #dfe4e2;
+  border-radius: 12px;
+  overflow: hidden;
+  min-width: 0;
+}
+.sales-card-open {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 18px;
+}
+.sales-card-open:hover {
+  background: #fafbf9;
+}
+.sales-identity {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.sales-identity .avatar {
+  flex-shrink: 0;
+  width: 38px;
+  height: 38px;
+  font-size: 16px;
+}
+.sales-identity strong,
+.sales-identity h3 {
+  flex: 1;
+  font-size: 15px;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.sales-identity > svg {
+  flex-shrink: 0;
+  color: #8c999f;
+}
+.sales-details-label {
+  display: block;
+  margin: 17px 0 5px;
+  font-size: 11px;
+  color: #8c999f;
+}
+.sales-preview {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  line-height: 1.7;
+  color: #57666c;
+}
+.sales-card-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 14px;
+  border-top: 1px solid #edf0ee;
+}
+.sales-card-actions .phone-link {
+  font-size: 12px;
+}
+.sales-card-actions .text-btn {
+  min-height: 44px;
+  padding: 0 6px;
+}
+.sales-state {
+  background: #fff;
+  border: 1px solid #dfe4e2;
+  border-radius: 12px;
+  padding: 35px 18px;
+  text-align: center;
+  color: #7a878d;
+  margin-top: 14px;
+}
+.sales-state > svg {
+  color: #a0adb2;
+}
+.sales-state h2 {
+  font-size: 17px;
+  color: #354952;
+  margin: 14px 0 6px;
+}
+.sales-state p {
+  font-size: 13px;
+  line-height: 1.7;
+  margin: 0;
+}
+.sales-state .text-btn {
+  min-height: 44px;
+  margin: 12px auto 0;
+}
+.sales-detail {
+  padding: 22px;
+}
+.sales-detail > .phone-link {
+  margin-top: 16px;
+}
+.sales-detail h4 {
+  font-size: 12px;
+  color: #7a878d;
+  font-weight: 500;
+  margin: 24px 0 8px;
+}
+.sales-detail p {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 14px;
+  line-height: 1.8;
+  margin: 0 0 22px;
+}
+.sales-detail > .btn {
+  width: 100%;
+}
+.sales-field-help {
+  color: #7a878d;
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.6;
+}
+@media (max-width: 700px) {
+  .sales-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+  }
+  .sales-toolbar {
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .sales-toolbar .search-box {
+    flex-basis: 100%;
+  }
+  .sales-toolbar > .btn {
+    margin-left: auto;
+    min-height: 44px;
+  }
+  .sales-card-open {
+    padding: 14px;
+  }
+  .sales-detail {
+    padding: 18px;
+  }
+  .mobile-nav > button {
+    min-width: 44px;
+  }
+}
 :root {
   color: #26343c;
   background: #f5f4f0;

@@ -22,6 +22,8 @@ import { changeQueueStatus, validateQueueStatusChange } from './queue'
 import { emptyData, queueStates, today } from './model'
 import { OWNER_EMAIL } from './members'
 import { useCurrentDay } from './useReports'
+import { saveSalesContact as persistSalesContact, validateSalesContact } from './sales'
+import type { SalesContactInput } from './sales'
 import type {
   Audit,
   CancellationInput,
@@ -51,6 +53,7 @@ type Store = {
   month: string
   setMonth: (s: string) => void
   toggleDemoAdmin: () => void
+  saveSalesContact: (input: SalesContactInput, id?: string) => Promise<void>
   saveDriver: (
     d: Omit<Driver, 'id' | 'createdAt' | 'updatedAt' | 'activeJobId'>,
     id?: string,
@@ -263,6 +266,32 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         ),
       }
     })
+  const saveSalesContact: Store['saveSalesContact'] = async (input, id) => {
+    requireAdmin()
+    if (!isDemo) {
+      await persistSalesContact(db!, input, email, id)
+      return
+    }
+    const value = validateSalesContact(input),
+      now = Date.now()
+    if (id && !data.salesContacts.some((contact) => contact.id === id))
+      throw new Error('ไม่พบข้อมูลเซลล์นี้ กรุณาเปิดรายการใหม่')
+    demoUpdate(
+      (d) => ({
+        ...d,
+        salesContacts: id
+          ? d.salesContacts.map((contact) =>
+              contact.id === id ? { ...contact, ...value, updatedAt: now } : contact,
+            )
+          : [
+              ...d.salesContacts,
+              { ...value, id: crypto.randomUUID(), createdAt: now, updatedAt: now },
+            ],
+      }),
+      id ? 'แก้ไขเซลล์' : 'เพิ่มเซลล์',
+      value.name,
+    )
+  }
   const saveDriver: Store['saveDriver'] = async (input, id) => {
     requireAdmin()
     const name = input.name.trim(),
@@ -573,6 +602,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           if (isDemo) setAdmin(!admin)
         },
         saveDriver,
+        saveSalesContact,
         joinQueue,
         cancelQueue,
         moveToEnd,
