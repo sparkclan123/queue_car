@@ -4,7 +4,6 @@ import {
   ArrowDownToLine,
   ListEnd,
   ArrowRight,
-  CalendarDays,
   Check,
   ChevronLeft,
   ChevronRight,
@@ -34,6 +33,8 @@ import { useCurrentDay, useReports } from './lib/useReports'
 import { DriverReport, ReportPanel } from './components/Reports'
 import { FinanceSummary } from './components/FinanceSummary'
 import { PhoneLink } from './components/PhoneLink'
+import { DateInput } from './components/DateInput'
+import { MembersPanel } from './components/Members'
 import { telephoneHref } from './lib/phone'
 import type { ReportDriver, ReportProps } from './components/Reports'
 import { errorMessage, login, logout } from './lib/firebase'
@@ -60,7 +61,7 @@ import {
   LoginPanel,
   QueueForm,
 } from './components/Forms'
-type Page = 'dashboard' | 'queue' | 'jobs' | 'finance' | 'drivers' | 'activity'
+type Page = 'dashboard' | 'queue' | 'jobs' | 'finance' | 'drivers' | 'activity' | 'members'
 type Dialog =
   | { type: 'login' | 'queue' | 'driver' | 'entry' | 'help'; driver?: Driver }
   | { type: 'job' | 'cancel-queue' | 'queue-actions'; item: QueueItem }
@@ -141,6 +142,9 @@ export default function App() {
       setDialog(null)
   }, [s.admin, page, dialog])
   useEffect(() => {
+    if (page === 'members' && !s.owner) setPage('dashboard')
+  }, [page, s.owner])
+  useEffect(() => {
     if (!toast) return
     const t = setTimeout(() => setToast(''), 3500)
     return () => clearTimeout(t)
@@ -200,21 +204,16 @@ export default function App() {
         >
           <ChevronLeft size={17} />
         </button>
-        <label>
-          <CalendarDays size={16} />
-          <span>
-            {s.day === today() && <span className="date-today">วันนี้ · </span>}
-            {dateLabel(s.day)}
-          </span>
-          <input
-            aria-label="เลือกวันที่งานวิ่ง"
-            type="date"
-            value={s.day}
-            onChange={(e) => {
-              if (e.target.value) s.setDay(e.target.value)
-            }}
-          />
-        </label>
+        <DateInput
+          className="date-input-inline"
+          displayValue={`${s.day === today() ? 'วันนี้ · ' : ''}${dateLabel(s.day)}`}
+          aria-label="เลือกวันที่งานวิ่ง"
+          type="date"
+          value={s.day}
+          onChange={(e) => {
+            if (e.target.value) s.setDay(e.target.value)
+          }}
+        />
         <button
           className="icon-btn"
           aria-label="วันถัดไป"
@@ -350,6 +349,7 @@ export default function App() {
     )
   }
   const headerTitles: Record<Page, [string, string]> = {
+    members: ['จัดการสมาชิก', 'แต่งตั้งหรือถอดสิทธิ์ผู้ดูแลระบบ'],
     dashboard: ['ภาพรวม', 'คิวรถปัจจุบัน และงานวิ่งตามวันที่เลือก'],
     queue: ['คิวรถปัจจุบัน', 'เรียงตามลำดับลงคิว พร้อมสำหรับงานถัดไป'],
     jobs: ['งานวิ่งประจำวัน', 'ติดตามรถและจังหวัดปลายทางในแต่ละเที่ยว'],
@@ -384,6 +384,15 @@ export default function App() {
               {n.id === 'finance' && entries.some((e) => e.status === 'pending') && <i />}
             </button>
           ))}
+          {s.owner && (
+            <button
+              className={`nav-item ${page === 'members' ? 'active' : ''}`}
+              onClick={() => navigate('members')}
+            >
+              <ShieldCheck size={20} />
+              <span>จัดการสมาชิก</span>
+            </button>
+          )}
         </nav>
         <div className="sidebar-bottom">
           <div className="sidebar-note">
@@ -418,6 +427,16 @@ export default function App() {
             พื้นที่ทำงาน <ChevronRight size={13} /> <strong>{headerTitles[page][0]}</strong>
           </div>
           <div className="topbar-right">
+            {s.owner && (
+              <button
+                className="member-menu-button"
+                onClick={() => navigate('members')}
+                aria-label="จัดการสมาชิก"
+              >
+                <ShieldCheck size={18} />
+                <span>สมาชิก</span>
+              </button>
+            )}
             <span className="connection-status">
               <span className={`live-dot ${!s.online ? 'offline' : ''}`} />
               {s.demo ? 'โหมดตัวอย่าง' : s.online ? 'อัปเดตอัตโนมัติ' : 'ออฟไลน์'}
@@ -425,6 +444,7 @@ export default function App() {
             {s.admin ? (
               <button
                 className="profile-chip"
+                aria-label={s.demo ? 'ออกจากโหมดผู้ดูแล' : 'ออกจากระบบ'}
                 onClick={() => {
                   if (s.demo) s.toggleDemoAdmin()
                   else void logout().catch((e) => setToast(errorMessage(e)))
@@ -435,7 +455,8 @@ export default function App() {
                   {(s.email || 'ผู้ดูแล').slice(0, 1).toUpperCase()}
                 </span>
                 <span>
-                  ผู้ดูแลระบบ<small>{s.demo ? 'ออกจากโหมดผู้ดูแล' : s.email}</small>
+                  {s.owner ? 'ผู้ดูแลหลัก' : 'ผู้ดูแลระบบ'}
+                  <small>{s.demo ? 'ออกจากโหมดผู้ดูแล' : s.email}</small>
                 </span>
                 <LogOut size={16} />
               </button>
@@ -510,7 +531,7 @@ export default function App() {
               </div>
               <div className="heading-actions">
                 {page === 'jobs' && dateControl()}
-                {s.admin && (
+                {s.admin && page !== 'members' && (
                   <button
                     className="btn primary"
                     onClick={() =>
@@ -539,6 +560,7 @@ export default function App() {
             </div>
           ) : (
             <>
+              {page === 'members' && s.owner && <MembersPanel />}
               {page === 'dashboard' && (
                 <>
                   <section className="dispatch-board" aria-label="คิวรถปัจจุบัน">
@@ -668,9 +690,8 @@ export default function App() {
                 <>
                   <div className="finance-top">
                     <label className="month-control">
-                      <CalendarDays size={18} />
-                      เดือนที่แสดง
-                      <input
+                      <span>เดือนที่แสดง</span>
+                      <DateInput
                         type="month"
                         aria-label="เดือนรายการการเงิน"
                         value={s.month}

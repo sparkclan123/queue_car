@@ -2,15 +2,28 @@ rules_version = '2';
 service cloud.firestore {
  match /databases/{database}/documents {
   function signedGoogle() { return request.auth != null && request.auth.token.email_verified == true && request.auth.token.firebase.sign_in_provider == 'google.com'; }
-  function admin() { return signedGoogle() && exists(/databases/$(database)/documents/admins/$(request.auth.token.email.lower())) && get(/databases/$(database)/documents/admins/$(request.auth.token.email.lower())).data.active == true; }
+  function owner() { return signedGoogle() && request.auth.token.email.lower() == 'porthachapong@gmail.com'; }
+  function admin() { return owner() || (signedGoogle() && exists(/databases/$(database)/documents/admins/$(request.auth.token.email.lower())) && get(/databases/$(database)/documents/admins/$(request.auth.token.email.lower())).data.active == true); }
   function str(s,n) { return s is string && s.size() <= n; }
   function required(s,n) { return str(s,n) && s.size() > 0; }
   function validDate(d) { return d is string && d.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$'); }
   function driver(id) { return get(/databases/$(database)/documents/drivers/$(id)).data; }
   match /admins/{email} {
-   allow get: if signedGoogle() && (request.auth.token.email.lower() == email || admin());
-   allow list: if admin();
-   allow write: if false;
+   allow get: if signedGoogle() && (request.auth.token.email.lower() == email || owner());
+   allow list: if owner();
+   allow create, update: if owner() && email != 'porthachapong@gmail.com' && email == email.lower() && email.size() <= 254 && email.matches('^[^ /@]+@[^ /@]+[.][^ /@]+$') && request.resource.data.keys().hasOnly(['active', 'updatedBy', 'updatedAt']) && request.resource.data.active is bool && request.resource.data.updatedBy == request.auth.token.email.lower() && request.resource.data.updatedAt == request.time;
+   allow delete: if false;
+  }
+  match /members/{uid} {
+   allow get: if owner() || (signedGoogle() && request.auth.uid == uid);
+   allow list: if owner();
+   allow create, update: if signedGoogle() && request.auth.uid == uid && request.resource.data.keys().hasOnly(['email','name','lastLoginAt']) && request.resource.data.email == request.auth.token.email.lower() && str(request.resource.data.name,100) && request.resource.data.lastLoginAt == request.time;
+   allow delete: if false;
+  }
+  match /memberAudits/{id} {
+   allow read: if owner();
+   allow create: if owner() && request.resource.data.keys().hasOnly(['email','active','actor','createdAt']) && required(request.resource.data.email,254) && request.resource.data.active is bool && request.resource.data.actor == request.auth.token.email.lower() && request.resource.data.createdAt == request.time && getAfter(/databases/$(database)/documents/admins/$(request.resource.data.email)).data.active == request.resource.data.active;
+   allow update, delete: if false;
   }
   match /settings/queue {
    allow read: if admin();

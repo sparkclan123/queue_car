@@ -80,6 +80,7 @@ export function totals(data: ReportData) {
       ...new Set(data.jobs.filter((j) => j.status !== 'cancelled').flatMap((j) => j.provinces)),
     ],
     byKind,
+    advanceCount: entries.filter((e) => e.kind === 'advance').length,
     outgoing: entries.filter((e) => e.kind !== 'deduction').reduce((n, e) => n + e.amount, 0),
     deductions: byKind.deduction,
     paidOut,
@@ -89,6 +90,18 @@ export function totals(data: ReportData) {
     pendingDeduction: sum('pending', true),
     entryCount: entries.length,
   }
+}
+export function reportDays(data: ReportData) {
+  const days = new Map<string, ReportData>()
+  function group(date: string) {
+    if (!days.has(date)) days.set(date, { jobs: [], entries: [], cancellations: [] })
+    return days.get(date)!
+  }
+  for (const j of data.jobs) if (j.status !== 'cancelled') group(j.date).jobs.push(j)
+  for (const e of data.entries) if (e.status !== 'void') group(e.date).entries.push(e)
+  return [...days]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([date, rows]) => ({ date, totals: totals(rows) }))
 }
 export function forDriver(data: ReportData, driverId: string): ReportData {
   return {

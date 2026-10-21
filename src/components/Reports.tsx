@@ -16,6 +16,8 @@ import { forDriver, reportDrivers, totals, validatePeriod } from '../lib/reports
 import type { Period, ReportData } from '../lib/reports'
 import { Badge, Route } from './ui'
 import { PhoneLink } from './PhoneLink'
+import { DateInput } from './DateInput'
+import { ReportCharts, ReportView } from './ReportCharts'
 import { telephoneHref } from '../lib/phone'
 
 export type ReportDriver = { id: string; name: string; plate: string }
@@ -63,7 +65,7 @@ export function PeriodPicker({
       >
         <label>
           วันที่เริ่มต้น
-          <input
+          <DateInput
             aria-label="วันที่เริ่มต้นรายงาน"
             type="date"
             value={start}
@@ -73,7 +75,7 @@ export function PeriodPicker({
         </label>
         <label>
           ถึงวันที่
-          <input
+          <DateInput
             aria-label="วันที่สิ้นสุดรายงาน"
             type="date"
             value={end}
@@ -314,6 +316,7 @@ export function ReportPanel(props: ReportProps) {
   const { data, period, onDriver, onJob, onEntry } = props
   const [tab, setTab] = useState('drivers'),
     [search, setSearch] = useState('')
+  const [view, setView] = useState<'list' | 'chart'>('list')
   const t = useMemo(() => totals(data), [data]),
     people = useMemo(() => reportDrivers(data), [data])
   const filteredPeople = people.filter((d) => `${d.name} ${d.plate}`.includes(search))
@@ -411,70 +414,81 @@ export function ReportPanel(props: ReportProps) {
             ยอดบันทึกรวมรายการรอดำเนินการ · รอจ่าย ฿{money(t.pendingOut)} · รอหัก ฿
             {money(t.pendingDeduction)}
           </div>
-          <div className="report-tabs" role="tablist" aria-label="หมวดรายงาน">
-            {tabs.map(([id, label, count]) => (
-              <button
-                key={id}
-                role="tab"
-                aria-selected={tab === id}
-                onClick={() => setTab(String(id))}
-              >
-                {label}
-                <span>{count}</span>
-              </button>
-            ))}
-          </div>
-          {tab === 'drivers' && (
-            <div className="report-table">
-              <div className="report-table-toolbar">
-                <label className="report-search">
-                  <Search size={16} />
-                  <input
-                    placeholder="ค้นหาคนรถ / ทะเบียน"
-                    aria-label="ค้นหาคนรถในรายงาน"
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                  />
-                </label>
-                <button className="text-btn" onClick={download}>
-                  <ArrowDownToLine size={16} /> CSV
-                </button>
-              </div>
-              {filteredPeople.length ? (
-                filteredPeople.map((d) => (
-                  <button className="driver-report-row" key={d.id} onClick={() => onDriver(d)}>
-                    <span className="driver-report-identity">
-                      <strong>{d.name}</strong>
-                      <small>{d.plate}</small>
-                    </span>
-                    <span className="driver-report-trips">
-                      <strong>{d.totals.trips}</strong>
-                      <small>เที่ยว</small>
-                    </span>
-                    <span className="driver-report-amount">
-                      <strong>฿{money(d.totals.outgoing)}</strong>
-                      <small>{d.totals.entryCount} รายการเงิน</small>
-                    </span>
-                    <ChevronRight size={18} />
-                  </button>
-                ))
-              ) : (
-                <NoRows>ไม่มีข้อมูลคนรถที่ตรงกับช่วงวันที่หรือคำค้น</NoRows>
-              )}
-              <p className="table-footnote">
-                แตะคนรถเพื่อดูเที่ยววิ่ง เส้นทาง และรายละเอียดการเงิน
-              </p>
-            </div>
-          )}
-          {tab === 'jobs' && <JobRows jobs={data.jobs} onJob={onJob} />}
-          {tab === 'money' && (
+          <ReportView value={view} onChange={setView} />
+          {view === 'chart' ? (
+            <ReportCharts data={data} onDriver={onDriver} />
+          ) : (
             <>
-              <FinancialBreakdown data={data} />
-              <EntryRows entries={data.entries} onEntry={onEntry} />
+              <div className="report-tabs" role="tablist" aria-label="หมวดรายงาน">
+                {tabs.map(([id, label, count]) => (
+                  <button
+                    key={id}
+                    role="tab"
+                    aria-selected={tab === id}
+                    onClick={() => setTab(String(id))}
+                  >
+                    {label}
+                    <span>{count}</span>
+                  </button>
+                ))}
+              </div>
+              {tab === 'drivers' && (
+                <div className="report-table">
+                  <div className="report-table-toolbar">
+                    <label className="report-search">
+                      <Search size={16} />
+                      <input
+                        placeholder="ค้นหาคนรถ / ทะเบียน"
+                        aria-label="ค้นหาคนรถในรายงาน"
+                        value={search}
+                        onChange={(e) => setSearch(e.target.value)}
+                      />
+                    </label>
+                    <button className="text-btn" onClick={download}>
+                      <ArrowDownToLine size={16} /> CSV
+                    </button>
+                  </div>
+                  {filteredPeople.length ? (
+                    filteredPeople.map((d) => (
+                      <button className="driver-report-row" key={d.id} onClick={() => onDriver(d)}>
+                        <span className="driver-report-identity">
+                          <strong>{d.name}</strong>
+                          <small>{d.plate}</small>
+                        </span>
+                        <span className="driver-report-trips">
+                          <strong>{d.totals.trips}</strong>
+                          <small>เที่ยว</small>
+                        </span>
+                        <span className="driver-report-amount">
+                          <strong>฿{money(d.totals.outgoing)}</strong>
+                          <small>{d.totals.entryCount} รายการเงิน</small>
+                        </span>
+                        <ChevronRight size={18} />
+                      </button>
+                    ))
+                  ) : (
+                    <NoRows>ไม่มีข้อมูลคนรถที่ตรงกับช่วงวันที่หรือคำค้น</NoRows>
+                  )}
+                  <p className="table-footnote">
+                    แตะคนรถเพื่อดูเที่ยววิ่ง เส้นทาง และรายละเอียดการเงิน
+                  </p>
+                </div>
+              )}
+              {tab === 'jobs' && <JobRows jobs={data.jobs} onJob={onJob} />}
+              {tab === 'money' && (
+                <>
+                  <FinancialBreakdown data={data} />
+                  <EntryRows entries={data.entries} onEntry={onEntry} />
+                </>
+              )}
+              {tab === 'cancellations' && (
+                <CancellationRows
+                  items={data.cancellations}
+                  entries={data.entries}
+                  onEntry={onEntry}
+                />
+              )}
             </>
-          )}
-          {tab === 'cancellations' && (
-            <CancellationRows items={data.cancellations} entries={data.entries} onEntry={onEntry} />
           )}
         </>
       )}
@@ -495,6 +509,7 @@ export function DriverReport({
   const data = forDriver(props.data, driver.id),
     t = totals(data)
   const [tab, setTab] = useState('jobs')
+  const [view, setView] = useState<'list' | 'chart'>('list')
   function download() {
     exportCsv(`รายงาน-${driver.plate}-${props.period.start}-${props.period.end}.csv`, [
       ['คนรถ', driver.name, 'ทะเบียน', driver.plate],
@@ -561,30 +576,37 @@ export function DriverReport({
           {t.provinces.length > 0 && (
             <p className="driver-destinations">{t.provinces.join(' · ')}</p>
           )}
-          <FinancialBreakdown data={data} />
-          <div className="report-tabs" role="tablist" aria-label="รายละเอียดคนรถ">
-            <button role="tab" aria-selected={tab === 'jobs'} onClick={() => setTab('jobs')}>
-              เที่ยววิ่ง <span>{data.jobs.length}</span>
-            </button>
-            <button role="tab" aria-selected={tab === 'money'} onClick={() => setTab('money')}>
-              การเงิน <span>{data.entries.length}</span>
-            </button>
-            <button
-              role="tab"
-              aria-selected={tab === 'cancellations'}
-              onClick={() => setTab('cancellations')}
-            >
-              ยกเลิก / ขึ้นแทน <span>{data.cancellations.length}</span>
-            </button>
-          </div>
-          {tab === 'jobs' && <JobRows jobs={data.jobs} onJob={props.onJob} />}
-          {tab === 'money' && <EntryRows entries={data.entries} onEntry={props.onEntry} />}
-          {tab === 'cancellations' && (
-            <CancellationRows
-              items={data.cancellations}
-              entries={props.data.entries}
-              onEntry={props.onEntry}
-            />
+          <ReportView value={view} onChange={setView} />
+          {view === 'chart' ? (
+            <ReportCharts data={data} individual />
+          ) : (
+            <>
+              <FinancialBreakdown data={data} />
+              <div className="report-tabs" role="tablist" aria-label="รายละเอียดคนรถ">
+                <button role="tab" aria-selected={tab === 'jobs'} onClick={() => setTab('jobs')}>
+                  เที่ยววิ่ง <span>{data.jobs.length}</span>
+                </button>
+                <button role="tab" aria-selected={tab === 'money'} onClick={() => setTab('money')}>
+                  การเงิน <span>{data.entries.length}</span>
+                </button>
+                <button
+                  role="tab"
+                  aria-selected={tab === 'cancellations'}
+                  onClick={() => setTab('cancellations')}
+                >
+                  ยกเลิก / ขึ้นแทน <span>{data.cancellations.length}</span>
+                </button>
+              </div>
+              {tab === 'jobs' && <JobRows jobs={data.jobs} onJob={props.onJob} />}
+              {tab === 'money' && <EntryRows entries={data.entries} onEntry={props.onEntry} />}
+              {tab === 'cancellations' && (
+                <CancellationRows
+                  items={data.cancellations}
+                  entries={props.data.entries}
+                  onEntry={props.onEntry}
+                />
+              )}
+            </>
           )}
         </>
       )}

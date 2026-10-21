@@ -7,6 +7,7 @@ import { kinds, optionalSatang, provinces, toSatang, today } from '../lib/model'
 import type { Driver, Entry, Evidence, QueueItem } from '../lib/model'
 import { compressEvidence } from '../lib/evidence'
 import { Avatar, Empty, Hint } from './ui'
+import { DateInput } from './DateInput'
 export function useSubmit(onDone: () => void) {
   const [busy, setBusy] = useState(false),
     [error, setError] = useState('')
@@ -113,7 +114,7 @@ export function DriverForm({ driver, onDone }: { driver?: Driver; onDone: () => 
         </label>
       </div>
       <label>
-        เบอร์โทร <span className="optional">เฉพาะผู้ดูแล</span>
+        เบอร์โทร <span className="optional">ไม่บังคับ</span>
         <input
           type="tel"
           name="phone"
@@ -227,7 +228,7 @@ export function JobForm({ item, onDone }: { item: QueueItem; onDone: () => void 
       </div>
       <label>
         วันที่ออกงาน <b>*</b>
-        <input type="date" name="date" required min={today()} defaultValue={today()} />
+        <DateInput name="date" required min={today()} defaultValue={today()} />
       </label>
       <label>
         จังหวัดปลายทาง <b>*</b>
@@ -349,7 +350,7 @@ export function CancelQueueForm({ item, onDone }: { item: QueueItem; onDone: () 
         <>
           <label>
             วันที่ขึ้นงานแทน <b>*</b>
-            <input type="date" name="jobDate" defaultValue={today()} min={today()} required />
+            <DateInput name="jobDate" defaultValue={today()} min={today()} required />
           </label>
           <label>
             จังหวัด / จุดส่งตามลำดับ <b>*</b>
@@ -523,7 +524,7 @@ export function EntryForm({ onDone }: { onDone: () => void }) {
         </label>
         <label>
           วันที่ <b>*</b>
-          <input type="date" name="date" required defaultValue={today()} />
+          <DateInput name="date" required defaultValue={today()} />
         </label>
       </div>
       <label>
@@ -588,7 +589,7 @@ export function EntryForm({ onDone }: { onDone: () => void }) {
         </div>
       )}
       <Hint>
-        รูปจะถูกย่อก่อนบันทึก เปิดดูได้เฉพาะผู้ดูแล เก็บต้นฉบับไว้หากต้องการใช้เอกสารความละเอียดสูง
+        รูปจะถูกย่อก่อนบันทึก ผู้ชมเปิดดูหลักฐานได้ เก็บต้นฉบับไว้หากต้องการใช้เอกสารความละเอียดสูง
       </Hint>
       <Footer
         busy={submit.busy || imageBusy}

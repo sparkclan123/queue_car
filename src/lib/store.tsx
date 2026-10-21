@@ -4,13 +4,14 @@ import { onAuthStateChanged } from 'firebase/auth'
 import {
   collection,
   doc,
-  getDoc,
   getDocs,
   limit,
   onSnapshot,
   orderBy,
   query,
   runTransaction,
+  serverTimestamp,
+  setDoc,
   where,
   writeBatch,
 } from 'firebase/firestore'
@@ -19,6 +20,7 @@ import { demoData } from './demo'
 import { cancellationPlan, cancelQueueTransaction } from './cancellations'
 import { changeQueueStatus, validateQueueStatusChange } from './queue'
 import { emptyData, queueStates, today } from './model'
+import { OWNER_EMAIL } from './members'
 import type {
   Audit,
   CancellationInput,
@@ -34,6 +36,7 @@ import type {
 type Store = {
   data: Data
   admin: boolean
+  owner: boolean
   email: string
   demo: boolean
   configured: boolean
@@ -79,6 +82,7 @@ function initialDemo(): Data {
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [data, setData] = useState<Data>(() => (isDemo ? initialDemo() : emptyData)),
     [admin, setAdmin] = useState(false),
+    [owner, setOwner] = useState(false),
     [email, setEmail] = useState(''),
     [loading, setLoading] = useState(!isDemo && !!db),
     [error, setError] = useState(''),
@@ -108,19 +112,49 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     if (!auth || !db) return
     void resumeAuth().catch((e) => setError(errorMessage(e)))
     let generation = 0
-    return onAuthStateChanged(auth, async (u) => {
+    let stopRole: (() => void) | undefined
+    const stopAuth = onAuthStateChanged(auth, async (u) => {
       const g = ++generation
+      stopRole?.()
+      stopRole = undefined
       setAdmin(false)
+      setOwner(false)
       setEmail(u?.email || '')
       if (u?.email && u.emailVerified) {
         try {
-          const s = await getDoc(doc(db!, 'admins', u.email.toLowerCase()))
-          if (g === generation) setAdmin(s.exists() && s.data().active === true)
+          const token = await u.getIdTokenResult()
+          if (g !== generation || token.signInProvider !== 'google.com') return
+          const email = u.email.toLowerCase()
+          const isOwner = email === OWNER_EMAIL
+          setOwner(isOwner)
+          setAdmin(isOwner)
+          stopRole = onSnapshot(
+            doc(db!, 'admins', email),
+            (snapshot) => {
+              if (g === generation) setAdmin(isOwner || snapshot.data()?.active === true)
+            },
+            (e) => {
+              if (g === generation) {
+                setAdmin(isOwner)
+                setError(errorMessage(e))
+              }
+            },
+          )
+          await setDoc(doc(db!, 'members', u.uid), {
+            email,
+            name: (u.displayName || '').slice(0, 100),
+            lastLoginAt: serverTimestamp(),
+          })
         } catch (e) {
           if (g === generation) setError(errorMessage(e))
         }
       }
     })
+    return () => {
+      generation++
+      stopAuth()
+      stopRole?.()
+    }
   }, [])
   useEffect(() => {
     if (!db) return
@@ -512,6 +546,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       value={{
         data,
         admin,
+        owner: isDemo ? admin : owner,
         email,
         demo: isDemo,
         configured: !!db,

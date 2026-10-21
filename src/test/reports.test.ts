@@ -2,7 +2,14 @@ import { describe, expect, it } from 'vitest'
 import { cancellationPlan } from '../lib/cancellations'
 import { optionalSatang } from '../lib/model'
 import type { CancellationInput, Entry, Job, QueueItem } from '../lib/model'
-import { filterReport, forDriver, reportDrivers, totals, validatePeriod } from '../lib/reports'
+import {
+  filterReport,
+  forDriver,
+  reportDays,
+  reportDrivers,
+  totals,
+  validatePeriod,
+} from '../lib/reports'
 const queue: QueueItem = {
   id: 'd1',
   driverId: 'd1',
@@ -160,6 +167,40 @@ describe('date range reports', () => {
     expect(t.pendingOut).toBe(20002)
     expect(t.pendingDeduction).toBe(7002)
     expect(t.entryCount).toBe(4)
+    expect(t.advanceCount).toBe(2)
+  })
+  it('charts count advances separately from repairs and count a multi-province job once', () => {
+    const data = filterReport(
+      {
+        jobs: [baseJob, { ...baseJob, id: 'j2', status: 'cancelled' }],
+        entries: [
+          baseEntry,
+          { ...baseEntry, id: 'e2', amount: 20202, status: 'pending' },
+          { ...baseEntry, id: 'e3', kind: 'repair', amount: 80000 },
+          { ...baseEntry, id: 'e4', status: 'void', amount: 99999 },
+          { ...baseEntry, id: 'e5', date: '2026-09-30' },
+        ],
+        cancellations: [],
+      },
+      { start: '2026-10-01', end: '2026-10-20' },
+    )
+    const person = reportDrivers(data)[0]
+    expect(person.totals.advanceCount).toBe(2)
+    expect(person.totals.byKind.advance).toBe(30203)
+    expect(person.totals.outgoing).toBe(110203)
+    expect(person.totals.trips).toBe(1)
+    const days = reportDays(data)
+    expect(days.map((d) => d.date)).toEqual(['2026-10-01', '2026-10-20'])
+    expect(days[0].totals.trips).toBe(1)
+    expect(days[1].totals.advanceCount).toBe(2)
+    expect(days[1].totals.byKind.advance).toBe(30203)
+    expect(
+      reportDays({
+        jobs: [{ ...baseJob, status: 'cancelled' }],
+        entries: [{ ...baseEntry, status: 'void' }],
+        cancellations: [],
+      }),
+    ).toEqual([])
   })
   it('includes the cancellation in both driver histories but never double counts money', () => {
     const p = plan(),

@@ -11,6 +11,7 @@ import { today } from '../lib/model'
 import { changeQueueStatus } from '../lib/queue'
 import type { CancellationInput, Job, QueueItem } from '../lib/model'
 import { readReportRange } from '../lib/reports'
+import { changeMemberRole, OWNER_EMAIL } from '../lib/members'
 import type { Firestore } from 'firebase/firestore'
 import {
   collection,
@@ -19,6 +20,7 @@ import {
   getDoc,
   getDocs,
   runTransaction,
+  serverTimestamp,
   setDoc,
   updateDoc,
   writeBatch,
@@ -332,7 +334,7 @@ describe('Guest and unauthorized isolation', () => {
       expect((await getDoc(doc(db, 'queue', 'd1'))).exists()).toBe(true)
     },
   )
-  it('cannot self-promote even as owner', async () => {
+  it('cannot self-promote as a viewer or an ordinary admin', async () => {
     await assertFails(setDoc(doc(outsider(), 'admins', 'other@example.com'), { active: true }))
     await assertFails(setDoc(doc(owner(), 'admins', 'new@example.com'), { active: true }))
   })
@@ -505,5 +507,91 @@ describe('Admin workflows and constraints', () => {
     }
     const results = await Promise.allSettled([assign('ja'), assign('jb')])
     expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1)
+  })
+})
+
+describe('owner-managed membership', () => {
+  function root(verified = true, provider: 'google.com' | 'password' = 'google.com') {
+    return env
+      .authenticatedContext('root', {
+        email: OWNER_EMAIL,
+        email_verified: verified,
+        firebase: { sign_in_provider: provider },
+      })
+      .firestore()
+  }
+  const role = (active = true) => ({ active, updatedBy: OWNER_EMAIL, updatedAt: serverTimestamp() })
+  const profile = () => ({
+    email: 'other@example.com',
+    name: 'สมาชิก',
+    lastLoginAt: serverTimestamp(),
+  })
+  it('owner can grant and revoke an admin, including writes from an existing signed-in session', async () => {
+    const member = outsider()
+    await assertFails(updateDoc(doc(member, 'drivers', 'd1'), { phone: '0811111111' }))
+    await changeMemberRole(root() as unknown as Firestore, ' OTHER@example.com ', true, OWNER_EMAIL)
+    await assertSucceeds(updateDoc(doc(member, 'drivers', 'd1'), { phone: '0811111111' }))
+    expect((await getDoc(doc(member, 'admins', 'other@example.com'))).data()?.active).toBe(true)
+    await changeMemberRole(root() as unknown as Firestore, 'other@example.com', false, OWNER_EMAIL)
+    await assertFails(updateDoc(doc(member, 'drivers', 'd1'), { phone: '0822222222' }))
+    await assertSucceeds(getDoc(doc(member, 'drivers', 'd1')))
+    expect((await getDocs(collection(root(), 'memberAudits'))).size).toBe(2)
+  })
+  it('only the owner can list roles, members and permission history', async () => {
+    for (const name of ['admins', 'members', 'memberAudits']) {
+      await assertSucceeds(getDocs(collection(root(), name)))
+      for (const db of [owner(), outsider(), env.unauthenticatedContext().firestore()]) {
+        await assertFails(getDocs(collection(db, name)))
+      }
+    }
+    await assertFails(getDoc(doc(owner(), 'admins', 'someone@example.com')))
+    for (const db of [owner(), outsider(), env.unauthenticatedContext().firestore()]) {
+      await assertFails(setDoc(doc(db, 'admins', 'other@example.com'), role()))
+      await assertFails(setDoc(doc(db, 'admins', OWNER_EMAIL), role(false)))
+    }
+  })
+  it('protects owner access and validates every role change', async () => {
+    await assertFails(setDoc(doc(root(), 'admins', OWNER_EMAIL), role(false)))
+    await assertFails(deleteDoc(doc(root(), 'admins', OWNER_EMAIL)))
+    await assertFails(setDoc(doc(root(), 'admins', 'Bad@Example.com'), role()))
+    await assertFails(setDoc(doc(root(), 'admins', 'not-an-email'), role()))
+    await assertFails(
+      setDoc(doc(root(), 'admins', 'new@example.com'), { ...role(), role: 'owner' }),
+    )
+    await assertFails(
+      setDoc(doc(root(), 'admins', 'new@example.com'), {
+        ...role(),
+        updatedBy: 'fake@example.com',
+      }),
+    )
+    await assertFails(
+      setDoc(doc(root(), 'admins', 'new@example.com'), { ...role(), active: 'true' }),
+    )
+    await assertSucceeds(setDoc(doc(root(), 'admins', 'new@example.com'), role()))
+    await assertFails(deleteDoc(doc(root(), 'admins', 'new@example.com')))
+    await assertSucceeds(updateDoc(doc(root(), 'drivers', 'd1'), { phone: '0811111111' }))
+    for (const db of [root(false), root(true, 'password')]) {
+      await assertFails(setDoc(doc(db, 'admins', 'new@example.com'), role()))
+      await assertFails(getDocs(collection(db, 'members')))
+    }
+  })
+  it('a signed-in Google user registers only their own verified profile and cannot inject roles', async () => {
+    await assertSucceeds(setDoc(doc(outsider(), 'members', 'outsider'), profile()))
+    await assertSucceeds(getDoc(doc(outsider(), 'members', 'outsider')))
+    await assertSucceeds(
+      setDoc(doc(outsider(), 'members', 'outsider'), { ...profile(), name: 'ชื่อใหม่' }),
+    )
+    await assertFails(setDoc(doc(outsider(), 'members', 'root'), profile()))
+    await assertFails(
+      setDoc(doc(outsider(), 'members', 'outsider'), { ...profile(), email: OWNER_EMAIL }),
+    )
+    await assertFails(
+      setDoc(doc(outsider(), 'members', 'outsider'), { ...profile(), active: true }),
+    )
+    await assertFails(
+      setDoc(doc(env.unauthenticatedContext().firestore(), 'members', 'outsider'), profile()),
+    )
+    await assertFails(getDoc(doc(owner(), 'members', 'outsider')))
+    await assertSucceeds(getDoc(doc(root(), 'members', 'outsider')))
   })
 })
