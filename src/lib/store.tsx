@@ -21,6 +21,7 @@ import { cancellationPlan, cancelQueueTransaction } from './cancellations'
 import { changeQueueStatus, validateQueueStatusChange } from './queue'
 import { emptyData, queueStates, today } from './model'
 import { OWNER_EMAIL } from './members'
+import { useCurrentDay } from './useReports'
 import type {
   Audit,
   CancellationInput,
@@ -42,7 +43,9 @@ type Store = {
   configured: boolean
   loading: boolean
   error: string
+  jobsError: string
   online: boolean
+  currentDay: string
   day: string
   setDay: (s: string) => void
   month: string
@@ -86,10 +89,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [email, setEmail] = useState(''),
     [loading, setLoading] = useState(!isDemo && !!db),
     [error, setError] = useState(''),
+    [jobsError, setJobsError] = useState(''),
     [online, setOnline] = useState(navigator.onLine),
     [day, setDay] = useState(today()),
     [month, setMonth] = useState(today().slice(0, 7))
   const [demoEvidence, setDemoEvidence] = useState<Record<string, Evidence[]>>({})
+  const currentDay = useCurrentDay()
   useEffect(() => {
     const on = () => setOnline(true),
       off = () => setOnline(false)
@@ -160,6 +165,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     if (!db) return
     setLoading(true)
     setError('')
+    setJobsError('')
     setData((d) => ({ ...d, jobs: [] }))
     const ready = new Set<string>()
     const fail = (e: unknown) => {
@@ -180,17 +186,21 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         fail,
       ),
       onSnapshot(
-        query(collection(db, 'jobs'), where('date', '==', day), limit(200)),
+        // Keep today's live activity available even when the jobs page is showing another day.
+        query(collection(db, 'jobs'), where('date', 'in', [...new Set([day, currentDay])])),
         (s) => {
           setData((d) => ({ ...d, jobs: s.docs.map((d) => ({ id: d.id, ...d.data() }) as Job) }))
           ready.add('jobs')
           if (ready.size >= 2) setLoading(false)
         },
-        fail,
+        (e) => {
+          setJobsError(errorMessage(e))
+          fail(e)
+        },
       ),
     ]
     return () => subs.forEach((s) => s())
-  }, [day])
+  }, [day, currentDay])
   useEffect(() => {
     if (!db) return
     setData((d) => ({ ...d, entries: [] }))
@@ -552,7 +562,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         configured: !!db,
         loading,
         error,
+        jobsError,
         online,
+        currentDay,
         day,
         setDay,
         month,

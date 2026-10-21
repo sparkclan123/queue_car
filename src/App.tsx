@@ -29,12 +29,13 @@ import {
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useStore } from './lib/store'
-import { useCurrentDay, useReports } from './lib/useReports'
+import { useReports } from './lib/useReports'
 import { DriverReport, ReportPanel } from './components/Reports'
 import { FinanceSummary } from './components/FinanceSummary'
 import { PhoneLink } from './components/PhoneLink'
 import { DateInput } from './components/DateInput'
 import { MembersPanel } from './components/Members'
+import { TodayActivity } from './components/TodayActivity'
 import { telephoneHref } from './lib/phone'
 import type { ReportDriver, ReportProps } from './components/Reports'
 import { errorMessage, login, logout } from './lib/firebase'
@@ -91,7 +92,7 @@ export default function App() {
     [reportStart, setReportStart] = useState(() => today().slice(0, 7) + '-01'),
     [reportEnd, setReportEnd] = useState<string | null>(null),
     [reportRevision, setReportRevision] = useState(0)
-  const currentDay = useCurrentDay()
+  const currentDay = s.currentDay
   const reportPeriod = { start: reportStart, end: reportEnd || currentDay }
   const report = useReports(
     reportPeriod,
@@ -592,6 +593,16 @@ export default function App() {
                       </button>
                     </div>
                   </section>
+                  <TodayActivity
+                    jobs={s.data.jobs}
+                    day={currentDay}
+                    error={s.jobsError}
+                    onJob={(job) => setDialog({ type: 'job-detail', job })}
+                    onAll={() => {
+                      s.setDay(currentDay)
+                      navigate('jobs')
+                    }}
+                  />
                   <ReportPanel {...reportProps} />
                 </>
               )}

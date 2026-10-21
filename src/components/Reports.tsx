@@ -355,7 +355,7 @@ export function ReportPanel(props: ReportProps) {
     <section className="reports-section">
       <div className="report-section-heading">
         <div>
-          <span className="section-index">02 / รายงาน</span>
+          <span className="section-index">03 / รายงาน</span>
           <h2>ภาพรวมการเดินรถ</h2>
         </div>
         <button
