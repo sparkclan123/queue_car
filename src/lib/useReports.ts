@@ -19,14 +19,8 @@ export function useCurrentDay() {
   return day
 }
 
-export function useReports(
-  period: Period,
-  admin: boolean,
-  demoData: Data,
-  enabled: boolean,
-  revision: number,
-) {
-  const key = `${period.start}/${period.end}/${admin}`
+export function useReports(period: Period, demoData: Data, enabled: boolean, revision: number) {
+  const key = `${period.start}/${period.end}`
   const [result, setResult] = useState<{ key: string; data: ReportData; loadedAt: number }>()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -38,10 +32,8 @@ export function useReports(
     const cancelled = () => disposed
     void Promise.all([
       readReportRange<Job>(db, 'jobs', period, cancelled),
-      admin ? readReportRange<Entry>(db, 'entries', period, cancelled) : Promise.resolve([]),
-      admin
-        ? readReportRange<Cancellation>(db, 'cancellations', period, cancelled)
-        : Promise.resolve([]),
+      readReportRange<Entry>(db, 'entries', period, cancelled),
+      readReportRange<Cancellation>(db, 'cancellations', period, cancelled),
     ])
       .then(([jobs, entries, cancellations]) => {
         if (!disposed)
@@ -66,8 +58,8 @@ export function useReports(
         ? filterReport(
             {
               jobs: demoData.jobs,
-              entries: admin ? demoData.entries : [],
-              cancellations: admin ? demoData.cancellations : [],
+              entries: demoData.entries,
+              cancellations: demoData.cancellations,
             },
             period,
           )

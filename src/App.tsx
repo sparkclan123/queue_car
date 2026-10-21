@@ -4,14 +4,12 @@ import {
   ArrowDownToLine,
   ListEnd,
   ArrowRight,
-  ArrowUpRight,
   CalendarDays,
   Check,
   ChevronLeft,
   ChevronRight,
   CircleHelp,
   ClipboardList,
-  Clock3,
   FileText,
   LayoutDashboard,
   LogIn,
@@ -35,6 +33,8 @@ import { useStore } from './lib/store'
 import { useCurrentDay, useReports } from './lib/useReports'
 import { DriverReport, ReportPanel } from './components/Reports'
 import { FinanceSummary } from './components/FinanceSummary'
+import { PhoneLink } from './components/PhoneLink'
+import { telephoneHref } from './lib/phone'
 import type { ReportDriver, ReportProps } from './components/Reports'
 import { errorMessage, login, logout } from './lib/firebase'
 import {
@@ -68,12 +68,12 @@ type Dialog =
   | { type: 'entry-detail'; entry: Entry }
   | { type: 'driver-report'; driver: ReportDriver }
   | { type: 'confirm'; title: string; text: string; label: string; action: () => Promise<void> }
-const navs: { id: Page; label: string; icon: LucideIcon; private?: boolean }[] = [
+const navs: { id: Page; label: string; icon: LucideIcon }[] = [
   { id: 'dashboard', label: 'ภาพรวม', icon: LayoutDashboard },
   { id: 'queue', label: 'คิวรถ', icon: ClipboardList },
   { id: 'jobs', label: 'งานวิ่ง', icon: MapPin },
-  { id: 'finance', label: 'การเงิน', icon: Wallet, private: true },
-  { id: 'drivers', label: 'คนรถ', icon: Users, private: true },
+  { id: 'finance', label: 'การเงิน', icon: Wallet },
+  { id: 'drivers', label: 'คนรถ', icon: Users },
 ]
 export default function App() {
   const s = useStore(),
@@ -94,14 +94,12 @@ export default function App() {
   const reportPeriod = { start: reportStart, end: reportEnd || currentDay }
   const report = useReports(
     reportPeriod,
-    s.admin,
     s.data,
     page === 'dashboard' || dialog?.type === 'driver-report',
     reportRevision,
   )
   const reportProps: ReportProps = {
     ...report,
-    admin: s.admin,
     period: reportPeriod,
     currentDay,
     onPeriod: (start, end) => {
@@ -131,12 +129,12 @@ export default function App() {
         `${e.driverName} ${e.plate} ${e.description} ${e.recipient}`.includes(search),
     )
   useEffect(() => {
-    if (!s.admin && ['finance', 'drivers', 'activity'].includes(page)) setPage('dashboard')
     if (
       !s.admin &&
       dialog &&
       dialog.type !== 'login' &&
       dialog.type !== 'job-detail' &&
+      dialog.type !== 'entry-detail' &&
       dialog.type !== 'driver-report' &&
       dialog.type !== 'help'
     )
@@ -236,110 +234,81 @@ export default function App() {
     const list = compact
       ? queue.slice(0, 4)
       : queue.filter((q) => `${q.driverName} ${q.plate}`.includes(search))
-    return (
-      <>
-        {list.length ? (
-          <div className={`queue-list ${compact ? 'queue-preview' : ''}`}>
-            {list.map((q, i) => (
-              <div
-                className={`queue-row ${queue.indexOf(q) === 0 ? 'first' : ''} ${s.admin ? 'managed' : ''}`}
-                key={q.id}
+    return list.length ? (
+      <div className={`queue-list ${compact ? 'queue-preview' : ''}`}>
+        {list.map((q) => {
+          const driver = s.data.drivers.find((d) => d.id === q.driverId)
+          return (
+            <div
+              className={`queue-row queue-record ${queue.indexOf(q) === 0 ? 'first' : ''}`}
+              key={q.id}
+            >
+              <button
+                className="queue-open"
+                aria-label={`ดูรายละเอียด ${q.driverName} ${q.plate}`}
+                onClick={() =>
+                  reportProps.onDriver({ id: q.driverId, name: q.driverName, plate: q.plate })
+                }
               >
-                <div className="queue-number">{String(queue.indexOf(q) + 1).padStart(2, '0')}</div>
-                {!compact && <Avatar name={q.driverName} index={i} />}
-                <div className="queue-person">
+                <span className="queue-number">
+                  {String(queue.indexOf(q) + 1).padStart(2, '0')}
+                </span>
+                <span className="queue-identity">
                   <strong>
-                    <button
-                      className="driver-name-link"
-                      onClick={() =>
-                        reportProps.onDriver({
-                          id: q.driverId,
-                          name: q.driverName,
-                          plate: q.plate,
-                        })
-                      }
-                    >
-                      {q.driverName}
-                      <ChevronRight size={13} />
-                    </button>
-                    {!compact && queue.indexOf(q) === 0 && (
-                      <span className="next-label">คิวถัดไป</span>
-                    )}
+                    {q.driverName} <ChevronRight size={14} />
                   </strong>
-                  <span>
-                    <span className="plate">{q.plate}</span>
-                    <span className="truck-type">{q.truckType}</span>
-                  </span>
-                  <div className="queue-status-line">
+                  <span className="queue-meta">
+                    <span className="queue-plate">{q.plate}</span>
                     <Badge state={queueStatus(q)}>{queueStates[queueStatus(q)]}</Badge>
-                  </div>
-                </div>
-                <div className="queue-time">
-                  <Clock3 size={13} />
-                  {new Intl.DateTimeFormat('th-TH', {
-                    hour: '2-digit',
-                    minute: '2-digit',
-                    timeZone: 'Asia/Bangkok',
-                  }).format(q.joinedAt)}
-                  <small>
-                    {new Intl.DateTimeFormat('th-TH', {
-                      day: 'numeric',
-                      month: 'short',
-                      timeZone: 'Asia/Bangkok',
-                    }).format(q.joinedAt)}
-                  </small>
-                </div>
-                {s.admin && compact && (
+                  </span>
+                  {!compact && (
+                    <small className="queue-joined">
+                      ลงคิว{' '}
+                      {new Intl.DateTimeFormat('th-TH', {
+                        day: 'numeric',
+                        month: 'short',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        timeZone: 'Asia/Bangkok',
+                      }).format(q.joinedAt)}
+                    </small>
+                  )}
+                </span>
+              </button>
+              <div className="queue-record-actions">
+                <PhoneLink phone={driver?.phone} name={q.driverName} compact />
+                {s.admin && (
                   <button
                     className="icon-btn queue-more"
                     aria-label={`จัดการคิว ${q.driverName}`}
                     aria-haspopup="dialog"
                     onClick={() => setDialog({ type: 'queue-actions', item: q })}
                   >
-                    <MoreHorizontal size={20} />
+                    <MoreHorizontal size={21} />
                   </button>
                 )}
-                {s.admin && !compact && (
-                  <div className="row-actions">
-                    <button
-                      className="btn small primary-light"
-                      onClick={() => setDialog({ type: 'job', item: q })}
-                    >
-                      จ่ายงาน <ArrowUpRight size={14} />
-                    </button>
-                    <button
-                      className="icon-btn"
-                      aria-label={`จัดการคิว ${q.driverName}`}
-                      title="จัดการคิวและสถานะ"
-                      aria-haspopup="dialog"
-                      onClick={() => setDialog({ type: 'queue-actions', item: q })}
-                    >
-                      <MoreHorizontal size={20} />
-                    </button>
-                  </div>
-                )}
               </div>
-            ))}
-          </div>
-        ) : (
-          <Empty
-            title={search && !compact ? 'ไม่พบคิวที่ค้นหา' : 'ตอนนี้ยังไม่มีรถรอคิว'}
-            detail={
-              s.admin
-                ? 'เพิ่มคนรถแล้วกดลงคิว เพื่อเริ่มจัดงานเที่ยวแรก'
-                : 'คิวรถจะแสดงที่นี่เมื่อผู้ดูแลลงคิว'
-            }
-            action={
-              s.admin && (
-                <button className="btn primary small" onClick={newQueue}>
-                  <Plus size={16} />
-                  ลงคิวรถ
-                </button>
-              )
-            }
-          />
-        )}
-      </>
+            </div>
+          )
+        })}
+      </div>
+    ) : (
+      <Empty
+        title={search && !compact ? 'ไม่พบคิวที่ค้นหา' : 'ตอนนี้ยังไม่มีรถรอคิว'}
+        detail={
+          s.admin
+            ? 'เพิ่มคนรถแล้วกดลงคิว เพื่อเริ่มจัดงานเที่ยวแรก'
+            : 'คิวรถจะแสดงที่นี่เมื่อผู้ดูแลลงคิว'
+        }
+        action={
+          s.admin && (
+            <button className="btn primary small" onClick={newQueue}>
+              <Plus size={16} />
+              ลงคิวรถ
+            </button>
+          )
+        }
+      />
     )
   }
   function jobCard(j: Job, i: number) {
@@ -385,7 +354,7 @@ export default function App() {
     queue: ['คิวรถปัจจุบัน', 'เรียงตามลำดับลงคิว พร้อมสำหรับงานถัดไป'],
     jobs: ['งานวิ่งประจำวัน', 'ติดตามรถและจังหวัดปลายทางในแต่ละเที่ยว'],
     finance: ['การเงินคนรถ', 'เบิกเงิน ค่าใช้จ่าย ค่าซ่อม และรายการหักเงิน'],
-    drivers: ['ทะเบียนคนรถ', 'จัดการคนรถ ทะเบียน และสถานะพร้อมรับงาน'],
+    drivers: ['ทะเบียนคนรถ', 'ชื่อคนรถ ทะเบียน เบอร์โทร และสถานะรับงาน'],
     activity: ['ประวัติกิจกรรม', 'การเปลี่ยนแปลงล่าสุดโดยผู้ดูแลระบบ'],
   }
   return (
@@ -403,31 +372,29 @@ export default function App() {
         </a>
         <div className="workspace-label">พื้นที่ทำงาน</div>
         <nav aria-label="เมนูหลัก">
-          {navs
-            .filter((n) => !n.private || s.admin)
-            .map((n) => (
-              <button
-                key={n.id}
-                onClick={() => navigate(n.id)}
-                className={`nav-item ${page === n.id ? 'active' : ''}`}
-              >
-                <n.icon size={20} />
-                <span>{n.label}</span>
-                {n.id === 'queue' && <em>{queue.length}</em>}
-                {n.id === 'finance' && entries.some((e) => e.status === 'pending') && <i />}
-              </button>
-            ))}
+          {navs.map((n) => (
+            <button
+              key={n.id}
+              onClick={() => navigate(n.id)}
+              className={`nav-item ${page === n.id ? 'active' : ''}`}
+            >
+              <n.icon size={20} />
+              <span>{n.label}</span>
+              {n.id === 'queue' && <em>{queue.length}</em>}
+              {n.id === 'finance' && entries.some((e) => e.status === 'pending') && <i />}
+            </button>
+          ))}
         </nav>
         <div className="sidebar-bottom">
           <div className="sidebar-note">
             <span className="sidebar-note-icon">
               <ShieldCheck size={20} />
             </span>
-            <strong>{s.admin ? 'พื้นที่สำหรับผู้ดูแล' : 'เปิดดูได้ ไม่ต้องล็อกอิน'}</strong>
+            <strong>{s.admin ? 'พื้นที่สำหรับผู้ดูแล' : 'ดูข้อมูลได้ครบ ไม่ต้องล็อกอิน'}</strong>
             <p>
               {s.admin
                 ? 'จัดการข้อมูลการเดินรถและการเงินของคุณได้ครบในที่เดียว'
-                : 'ติดตามคิวและเส้นทางประจำวันได้ทุกที่ ทุกเวลา'}
+                : 'ดูคิว งานวิ่ง การเงินและหลักฐานได้ครบ เพิ่มหรือแก้ไขได้เฉพาะผู้ดูแล'}
             </p>
             <button onClick={() => setDialog({ type: 'help' })}>
               วิธีใช้งาน <ArrowRight size={14} />
@@ -697,7 +664,7 @@ export default function App() {
                   )}
                 </>
               )}
-              {page === 'finance' && s.admin && (
+              {page === 'finance' && (
                 <>
                   <div className="finance-top">
                     <label className="month-control">
@@ -844,23 +811,29 @@ export default function App() {
                     ) : (
                       <Empty
                         title="ยังไม่มีรายการที่ตรงกับตัวกรอง"
-                        detail="เพิ่มรายการเบิกเงิน ค่าซ่อม หรือหักเงิน พร้อมแนบหลักฐาน"
+                        detail={
+                          s.admin
+                            ? 'เพิ่มรายการเบิกเงิน ค่าซ่อม หรือหักเงิน พร้อมแนบหลักฐาน'
+                            : 'ลองเปลี่ยนเดือนหรือตัวกรองเพื่อดูรายการอื่น'
+                        }
                         action={
-                          <button className="btn primary small" onClick={newEntry}>
-                            <Plus size={16} />
-                            เพิ่มรายการ
-                          </button>
+                          s.admin && (
+                            <button className="btn primary small" onClick={newEntry}>
+                              <Plus size={16} />
+                              เพิ่มรายการ
+                            </button>
+                          )
                         }
                       />
                     )}
                   </section>
                   <Hint>
-                    การกด “บันทึกจ่ายแล้ว” เป็นการบันทึกบัญชี ไม่มีการโอนเงินผ่านระบบ
-                    ยอดสรุปแยกตามประเภทและเดือนที่เลือก
+                    ยอดสรุปนับรายการที่ดำเนินการแล้ว แยกตามประเภทและเดือนที่เลือก
+                    {!s.admin && ' · แตะรายการเพื่อดูรายละเอียดและหลักฐาน'}
                   </Hint>
                 </>
               )}
-              {page === 'drivers' && s.admin && (
+              {page === 'drivers' && (
                 <>
                   <div className="toolbar">
                     <div className="search-box">
@@ -886,32 +859,32 @@ export default function App() {
                             <div className="driver-card-top">
                               <Avatar name={d.name} index={i} />
                               <button
-                                className="icon-btn"
-                                aria-label={`แก้ไข ${d.name}`}
-                                onClick={() => setDialog({ type: 'driver', driver: d })}
-                              >
-                                <MoreHorizontal size={21} />
-                              </button>
-                            </div>
-                            <h3>
-                              <button
-                                className="driver-name-link"
+                                className="driver-card-open"
                                 onClick={() =>
-                                  reportProps.onDriver({
-                                    id: d.id,
-                                    name: d.name,
-                                    plate: d.plate,
-                                  })
+                                  reportProps.onDriver({ id: d.id, name: d.name, plate: d.plate })
                                 }
                               >
-                                {d.name}
-                                <ChevronRight size={15} />
+                                <strong>
+                                  {d.name} <ChevronRight size={15} />
+                                </strong>
+                                <small>
+                                  {d.plate} · {d.truckType}
+                                </small>
                               </button>
-                            </h3>
-                            <p>
-                              <span className="plate">{d.plate}</span> {d.truckType}
-                            </p>
-                            <div className="driver-phone">{d.phone || 'ยังไม่ระบุเบอร์โทร'}</div>
+                              {s.admin && (
+                                <button
+                                  className="icon-btn"
+                                  aria-label={`แก้ไข ${d.name}`}
+                                  onClick={() => setDialog({ type: 'driver', driver: d })}
+                                >
+                                  <MoreHorizontal size={21} />
+                                </button>
+                              )}
+                            </div>
+                            <div className="driver-phone">
+                              <PhoneLink phone={d.phone} name={d.name} />
+                              {!telephoneHref(d.phone) && <span>ยังไม่มีเบอร์ที่โทรได้</span>}
+                            </div>
                             <div className="driver-card-bottom">
                               <Badge
                                 state={
@@ -932,7 +905,7 @@ export default function App() {
                                       ? queueStates[queueStatus(inQueue)]
                                       : 'พร้อมรับงาน'}
                               </Badge>
-                              {d.active && !d.activeJobId && !inQueue && (
+                              {s.admin && d.active && !d.activeJobId && !inQueue && (
                                 <button
                                   className="text-btn"
                                   onClick={() =>
@@ -956,23 +929,29 @@ export default function App() {
                   {!s.data.drivers.length && (
                     <div className="panel">
                       <Empty
-                        title="เริ่มจากเพิ่มคนรถคนแรก"
-                        detail="ระบุชื่อ ทะเบียน และประเภทรถ เพื่อพร้อมลงคิว"
+                        title={s.admin ? 'เริ่มจากเพิ่มคนรถคนแรก' : 'ยังไม่มีข้อมูลคนรถ'}
+                        detail={
+                          s.admin
+                            ? 'ระบุชื่อ ทะเบียน และประเภทรถ เพื่อพร้อมลงคิว'
+                            : 'ข้อมูลจะแสดงเมื่อผู้ดูแลเพิ่มคนรถ'
+                        }
                         action={
-                          <button
-                            className="btn primary"
-                            onClick={() => setDialog({ type: 'driver' })}
-                          >
-                            <Plus size={17} />
-                            เพิ่มคนรถ
-                          </button>
+                          s.admin && (
+                            <button
+                              className="btn primary"
+                              onClick={() => setDialog({ type: 'driver' })}
+                            >
+                              <Plus size={17} />
+                              เพิ่มคนรถ
+                            </button>
+                          )
                         }
                       />
                     </div>
                   )}
                 </>
               )}
-              {page === 'activity' && s.admin && (
+              {page === 'activity' && (
                 <section className="panel">
                   <div className="panel-heading">
                     <h2>กิจกรรมล่าสุด</h2>
@@ -1008,33 +987,29 @@ export default function App() {
           <footer className="page-footer">
             <span>คิวรถ / สมุดงานเดินรถ</span>
             <div>
-              {s.admin && (
-                <button className="text-btn" onClick={() => navigate('activity')}>
-                  ประวัติกิจกรรม
-                </button>
-              )}
+              <button className="text-btn" onClick={() => navigate('activity')}>
+                ประวัติกิจกรรม
+              </button>
               <span>
                 <ShieldCheck size={13} />
-                {s.admin ? 'ผู้ดูแลระบบ' : 'Guest · ดูได้ทันที'}
+                {s.admin ? 'ผู้ดูแลระบบ' : 'Guest · ดูอย่างเดียว'}
               </span>
             </div>
           </footer>
         </main>
       </div>
       <nav className="mobile-nav" aria-label="เมนูมือถือ">
-        {navs
-          .filter((n) => !n.private || s.admin)
-          .map((n) => (
-            <button
-              onClick={() => navigate(n.id)}
-              key={n.id}
-              className={page === n.id ? 'active' : ''}
-            >
-              <n.icon size={21} />
-              <span>{n.label}</span>
-              {n.id === 'queue' && queue.length > 0 && <i>{queue.length}</i>}
-            </button>
-          ))}
+        {navs.map((n) => (
+          <button
+            onClick={() => navigate(n.id)}
+            key={n.id}
+            className={page === n.id ? 'active' : ''}
+          >
+            <n.icon size={21} />
+            <span>{n.label}</span>
+            {n.id === 'queue' && queue.length > 0 && <i>{queue.length}</i>}
+          </button>
+        ))}
       </nav>
       {toast && (
         <div className="toast" role="status">
@@ -1078,12 +1053,20 @@ export default function App() {
             <LoginPanel onLogin={() => void signIn()} busy={loginBusy} error={loginError} />
           )}
           {dialog.type === 'driver-report' && (
-            <DriverReport {...reportProps} driver={dialog.driver} />
+            <DriverReport
+              key={dialog.driver.id}
+              {...reportProps}
+              driver={dialog.driver}
+              contact={s.data.drivers.find((d) => d.id === dialog.driver.id)}
+              queued={queue.find((q) => q.driverId === dialog.driver.id)}
+            />
           )}
-          {dialog.type === 'queue' && (
+          {dialog.type === 'queue' && s.admin && (
             <QueueForm onDone={done} onAddDriver={() => setDialog({ type: 'driver' })} />
           )}
-          {dialog.type === 'driver' && <DriverForm driver={dialog.driver} onDone={done} />}
+          {dialog.type === 'driver' && s.admin && (
+            <DriverForm driver={dialog.driver} onDone={done} />
+          )}
           {dialog.type === 'queue-actions' && s.admin && (
             <div className="form queue-action-sheet">
               <div className="selected-person">
@@ -1137,10 +1120,12 @@ export default function App() {
               </button>
             </div>
           )}
-          {dialog.type === 'job' && <JobForm item={dialog.item} onDone={done} />}
-          {dialog.type === 'cancel-queue' && <CancelQueueForm item={dialog.item} onDone={done} />}
-          {dialog.type === 'entry' && <EntryForm onDone={done} />}
-          {dialog.type === 'confirm' && (
+          {dialog.type === 'job' && s.admin && <JobForm item={dialog.item} onDone={done} />}
+          {dialog.type === 'cancel-queue' && s.admin && (
+            <CancelQueueForm item={dialog.item} onDone={done} />
+          )}
+          {dialog.type === 'entry' && s.admin && <EntryForm onDone={done} />}
+          {dialog.type === 'confirm' && s.admin && (
             <ConfirmForm
               text={dialog.text}
               label={dialog.label}
@@ -1204,8 +1189,9 @@ export default function App() {
               <p>
                 <strong>ผู้เข้าชม (Guest)</strong>
                 <br />
-                เปิดเว็บแล้วดูคิวปัจจุบันได้ทันที เลือกเมนูงานวิ่งเพื่อดูวันที่ เส้นทาง
-                และจังหวัดพ่วง โดยไม่ต้องล็อกอิน
+                ดูคิว คนรถ เบอร์โทร งานวิ่ง การเงิน หลักฐานและประวัติรายการได้โดยไม่ต้องล็อกอิน
+                แตะแถวคนรถเพื่อดูรายละเอียด หรือกดโทรเมื่อมีเบอร์ การเพิ่ม แก้ไข
+                และยกเลิกใช้ได้เฉพาะผู้ดูแล
               </p>
               <p>
                 <strong>ผู้ดูแลระบบ</strong>
@@ -1262,6 +1248,10 @@ function JobDetail({
         </div>
         <Badge state={job.status}>{jobStates[job.status]}</Badge>
       </div>
+      <PhoneLink
+        phone={s.data.drivers.find((d) => d.id === job.driverId)?.phone}
+        name={job.driverName}
+      />
       <dl>
         <div>
           <dt>วันที่ออกงาน</dt>
@@ -1346,6 +1336,10 @@ function EntryDetail({
       </div>
       <div className="detail-money">฿{money(entry.amount)}</div>
       <p className="entry-description">{entry.description}</p>
+      <PhoneLink
+        phone={s.data.drivers.find((d) => d.id === entry.driverId)?.phone}
+        name={entry.driverName}
+      />
       <dl>
         <div>
           <dt>คนรถ</dt>
@@ -1398,7 +1392,7 @@ function EntryDetail({
         )}
         {error && <p className="form-error">{error}</p>}
       </div>
-      {entry.status !== 'void' && (
+      {s.admin && entry.status !== 'void' && (
         <div className="detail-actions">
           {entry.status === 'pending' && (
             <button className="btn primary" onClick={() => onAction('paid')}>

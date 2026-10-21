@@ -18,7 +18,7 @@ service cloud.firestore {
   }
   match /drivers/{id} {
    function valid() { let d=request.resource.data; return d.keys().hasOnly(['name','plate','truckType','phone','active','activeJobId','createdAt','updatedAt']) && required(d.name,80) && required(d.plate,30) && required(d.truckType,50) && str(d.phone,30) && d.active is bool && str(d.activeJobId,100) && d.createdAt is int && d.updatedAt is int; }
-   allow read: if admin();
+   allow read: if true;
    allow create: if admin() && valid() && request.resource.data.activeJobId == '';
    allow update: if admin() && valid() && request.resource.data.createdAt == resource.data.createdAt && (request.resource.data.active || (request.resource.data.activeJobId == '' && !existsAfter(/databases/$(database)/documents/queue/$(id))));
    allow delete: if false;
@@ -49,12 +49,12 @@ service cloud.firestore {
        (d.kind == 'replacement' && id == c.compensationEntryId && d.driverId == c.replacementDriverId &&
         d.driverName == c.replacementDriverName && d.plate == c.replacementPlate && d.amount == c.compensationAmount));
    }
-   allow read: if admin();
+   allow read: if true;
    allow create: if admin() && valid() && request.resource.data.status == 'pending' && exists(/databases/$(database)/documents/drivers/$(request.resource.data.driverId)) && (('cancellationId' in request.resource.data) ? cancellationLink() : request.resource.data.kind != 'replacement');
    allow update: if admin() && valid() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','updatedAt']) && ((resource.data.status=='pending' && request.resource.data.status in ['paid','void']) || (resource.data.status=='paid' && request.resource.data.status=='void'));
    allow delete: if false;
    match /evidence/{evidenceId} {
-    allow read: if admin();
+    allow read: if true;
     allow create: if admin() && !exists(/databases/$(database)/documents/entries/$(id)) && existsAfter(/databases/$(database)/documents/entries/$(id)) && request.resource.data.keys().hasOnly(['name','dataUrl']) && required(request.resource.data.name,120) && str(request.resource.data.dataUrl,600000) && request.resource.data.dataUrl.matches('^data:image/jpeg;base64,[A-Za-z0-9+/=]+$');
     allow update,delete: if false;
    }
@@ -97,12 +97,12 @@ service cloud.firestore {
       (d.compensationAmount == 0 ? d.compensationEntryId == '' :
         (d.compensationEntryId == id + '_replacement' && linkedEntry(d.compensationEntryId, d.replacementDriverId, 'replacement', d.compensationAmount)));
    }
-   allow read: if admin();
+   allow read: if true;
    allow create: if admin() && valid();
    allow update, delete: if false;
   }
   match /audits/{id} {
-   allow read: if admin();
+   allow read: if true;
    allow create: if admin() && request.resource.data.keys().hasOnly(['action','detail','actor','createdAt']) && required(request.resource.data.action,100) && str(request.resource.data.detail,1000) && request.resource.data.actor == request.auth.token.email && request.resource.data.createdAt is int;
    allow update,delete: if false;
   }

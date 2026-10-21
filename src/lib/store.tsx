@@ -112,7 +112,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       const g = ++generation
       setAdmin(false)
       setEmail(u?.email || '')
-      setData((d) => ({ ...d, drivers: [], entries: [], audits: [] }))
       if (u?.email && u.emailVerified) {
         try {
           const s = await getDoc(doc(db!, 'admins', u.email.toLowerCase()))
@@ -159,7 +158,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     return () => subs.forEach((s) => s())
   }, [day])
   useEffect(() => {
-    if (!db || !admin) return
+    if (!db) return
     setData((d) => ({ ...d, entries: [] }))
     const fail = (e: unknown) => setError(errorMessage(e))
     const subs = [
@@ -198,7 +197,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       ),
     ]
     return () => subs.forEach((s) => s())
-  }, [admin, month])
+  }, [month])
   const requireAdmin = () => {
     if (!admin) throw new Error('เฉพาะผู้ดูแลเท่านั้น')
     if (!online && !isDemo) throw new Error('กรุณาเชื่อมต่ออินเทอร์เน็ตก่อนบันทึก')
@@ -504,7 +503,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     })
   }
   const evidence: Store['evidence'] = async (id) => {
-    requireAdmin()
     if (isDemo) return demoEvidence[id] || []
     const s = await getDocs(collection(db!, 'entries', id, 'evidence'))
     return s.docs.map((x) => ({ id: x.id, ...x.data() }) as Evidence)

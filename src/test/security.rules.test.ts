@@ -15,6 +15,7 @@ import type { Firestore } from 'firebase/firestore'
 import {
   collection,
   doc,
+  deleteDoc,
   getDoc,
   getDocs,
   runTransaction,
@@ -134,10 +135,10 @@ describe('cancellation, replacement and range reporting', () => {
     ).data()
     expect(publicJob).not.toHaveProperty('reason')
     expect(publicJob).not.toHaveProperty('deductionAmount')
-    await assertFails(
+    await assertSucceeds(
       getDocs(collection(env.unauthenticatedContext().firestore(), 'cancellations')),
     )
-    await assertFails(getDocs(collection(outsider(), 'cancellations')))
+    await assertSucceeds(getDocs(collection(outsider(), 'cancellations')))
     await assertSucceeds(
       updateDoc(doc(db, 'entries', p.record.deductionEntryId), { status: 'paid', updatedAt: 2 }),
     )
@@ -263,7 +264,7 @@ describe('Guest and unauthorized isolation', () => {
     await assertSucceeds(getDocs(collection(db, 'queue')))
     await assertSucceeds(getDocs(collection(db, 'jobs')))
   })
-  it('Guest cannot read drivers, money, evidence, audit or admin list', async () => {
+  it('Guest can read driver contacts, money, evidence and audit, but not settings or admin roles', async () => {
     const db = env.unauthenticatedContext().firestore()
     for (const path of [
       ['drivers', 'd1'],
@@ -271,16 +272,66 @@ describe('Guest and unauthorized isolation', () => {
       ['entries', 'e1', 'evidence', 'i1'],
       ['audits', 'a1'],
     ])
-      await assertFails(getDoc(doc(db, path.join('/'))))
+      await assertSucceeds(getDoc(doc(db, path.join('/'))))
     await assertFails(getDocs(collection(db, 'admins')))
+    await assertFails(getDoc(doc(db, 'admins', ownerEmail)))
+    await assertFails(getDocs(collection(db, 'settings')))
+    expect((await getDoc(doc(db, 'drivers', 'd1'))).data()?.phone).toBe(driver.phone)
+    const report = await readReportRange(db as unknown as Firestore, 'entries', {
+      start: '2026-10-01',
+      end: '2026-10-31',
+    })
+    expect(report).toHaveLength(1)
   })
-  it('a Google account without admin role has no access to private data or writes', async () => {
+  it('a Google account without admin role can read business records but cannot write', async () => {
     const db = outsider()
-    await assertFails(getDocs(collection(db, 'entries')))
+    await assertSucceeds(getDocs(collection(db, 'entries')))
     await assertFails(setDoc(doc(db, 'drivers', 'd2'), driver))
     await assertFails(updateDoc(doc(db, 'queue', 'd1'), { joinedAt: 5 }))
     await assertSucceeds(getDoc(doc(db, 'admins', 'other@example.com')))
   })
+  it.each(['guest', 'outsider'])(
+    '%s cannot create, edit or remove any business records',
+    async (role) => {
+      const db = role === 'guest' ? env.unauthenticatedContext().firestore() : outsider()
+      for (const path of [
+        'drivers/d1',
+        'queue/d1',
+        'jobs/historic',
+        'entries/e1',
+        'entries/e1/evidence/i1',
+        'audits/a1',
+      ]) {
+        const ref = doc(db, path)
+        const existing = (await getDoc(ref)).data()!
+        await assertFails(setDoc(ref, existing))
+        await assertFails(deleteDoc(ref))
+      }
+      await assertFails(setDoc(doc(db, 'drivers', 'new'), driver))
+      await assertFails(setDoc(doc(db, 'entries', 'new'), entry))
+      await assertFails(updateDoc(doc(db, 'drivers', 'd1'), { phone: '0811111111' }))
+      await assertFails(updateDoc(doc(db, 'entries', 'e1'), { status: 'paid', updatedAt: 2 }))
+      await assertFails(updateDoc(doc(db, 'entries', 'e1'), { status: 'void', updatedAt: 2 }))
+      await assertFails(updateDoc(doc(db, 'queue', 'd1'), { status: 'heading' }))
+      await expect(
+        cancelQueueTransaction(
+          db as unknown as Firestore,
+          'd1',
+          {
+            reason: 'unauthorized',
+            replacementDriverId: '',
+            jobDate: today(),
+            provinces: [],
+            deductionAmount: 0,
+            compensationAmount: 0,
+            deductionRecipient: '',
+          },
+          ownerEmail,
+        ),
+      ).rejects.toThrow()
+      expect((await getDoc(doc(db, 'queue', 'd1'))).exists()).toBe(true)
+    },
+  )
   it('cannot self-promote even as owner', async () => {
     await assertFails(setDoc(doc(outsider(), 'admins', 'other@example.com'), { active: true }))
     await assertFails(setDoc(doc(owner(), 'admins', 'new@example.com'), { active: true }))
@@ -297,10 +348,11 @@ describe('Guest and unauthorized isolation', () => {
           firebase: { sign_in_provider: provider },
         })
         .firestore()
-      await assertFails(getDoc(doc(db, 'drivers', 'd1')))
+      await assertSucceeds(getDoc(doc(db, 'drivers', 'd1')))
+      await assertFails(updateDoc(doc(db, 'drivers', 'd1'), { phone: '0811111111' }))
     }
   })
-  it('public documents cannot include private extra fields', async () => {
+  it('queue documents reject fields outside their schema', async () => {
     await assertFails(updateDoc(doc(owner(), 'queue', 'd1'), { phone: '0800000000' }))
   })
 })

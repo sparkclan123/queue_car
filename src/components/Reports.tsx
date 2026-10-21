@@ -1,17 +1,28 @@
 import { useEffect, useMemo, useState } from 'react'
 import { ArrowDownToLine, ArrowRight, ChevronRight, RefreshCw, Search } from 'lucide-react'
-import { dateLabel, entryStates, exportCsv, jobStates, kinds, money, shiftDate } from '../lib/model'
-import type { Cancellation, Entry, Job } from '../lib/model'
+import {
+  dateLabel,
+  entryStates,
+  exportCsv,
+  jobStates,
+  kinds,
+  money,
+  queueStates,
+  queueStatus,
+  shiftDate,
+} from '../lib/model'
+import type { Cancellation, Driver, Entry, Job, QueueItem } from '../lib/model'
 import { forDriver, reportDrivers, totals, validatePeriod } from '../lib/reports'
 import type { Period, ReportData } from '../lib/reports'
 import { Badge, Route } from './ui'
+import { PhoneLink } from './PhoneLink'
+import { telephoneHref } from '../lib/phone'
 
 export type ReportDriver = { id: string; name: string; plate: string }
 export type ReportProps = {
   data: ReportData
   loading: boolean
   error: string
-  admin: boolean
   period: Period
   currentDay: string
   onPeriod: (start: string, end: string | null) => void
@@ -300,24 +311,17 @@ function FinancialBreakdown({ data }: { data: ReportData }) {
 }
 
 export function ReportPanel(props: ReportProps) {
-  const { data, admin, period, onDriver, onJob, onEntry } = props
+  const { data, period, onDriver, onJob, onEntry } = props
   const [tab, setTab] = useState('drivers'),
     [search, setSearch] = useState('')
-  useEffect(() => {
-    if (!admin && ['money', 'cancellations'].includes(tab)) setTab('drivers')
-  }, [admin, tab])
   const t = useMemo(() => totals(data), [data]),
     people = useMemo(() => reportDrivers(data), [data])
   const filteredPeople = people.filter((d) => `${d.name} ${d.plate}`.includes(search))
   const tabs = [
     ['drivers', 'คนรถ', people.length],
     ['jobs', 'เที่ยววิ่ง', data.jobs.length],
-    ...(admin
-      ? [
-          ['money', 'การเงิน', data.entries.length],
-          ['cancellations', 'ยกเลิกคิว', data.cancellations.length],
-        ]
-      : []),
+    ['money', 'การเงิน', data.entries.length],
+    ['cancellations', 'ยกเลิกคิว', data.cancellations.length],
   ]
   function download() {
     const header = [
@@ -326,7 +330,9 @@ export function ReportPanel(props: ReportProps) {
       'เที่ยววิ่ง',
       'จบงาน',
       'จังหวัด',
-      ...(admin ? ['ยอดจ่ายที่บันทึก (บาท)', 'ยอดหักที่บันทึก (บาท)', 'จ่ายสุทธิแล้ว (บาท)'] : []),
+      'ยอดจ่ายที่บันทึก (บาท)',
+      'ยอดหักที่บันทึก (บาท)',
+      'จ่ายสุทธิแล้ว (บาท)',
     ]
     exportCsv(`สรุปคนรถ-${period.start}-${period.end}.csv`, [
       header,
@@ -336,9 +342,9 @@ export function ReportPanel(props: ReportProps) {
         d.totals.trips,
         d.totals.completed,
         d.totals.provinces.join(' / '),
-        ...(admin
-          ? [d.totals.outgoing / 100, d.totals.deductions / 100, d.totals.netPaid / 100]
-          : []),
+        d.totals.outgoing / 100,
+        d.totals.deductions / 100,
+        d.totals.netPaid / 100,
       ]),
     ])
   }
@@ -365,7 +371,7 @@ export function ReportPanel(props: ReportProps) {
       <ReportState {...props} />
       {!props.loading && !props.error && (
         <>
-          <div className={`report-metrics ${admin ? '' : 'public-metrics'}`}>
+          <div className="report-metrics">
             <div>
               <span>งานวิ่ง</span>
               <strong>
@@ -376,50 +382,35 @@ export function ReportPanel(props: ReportProps) {
                 จบแล้ว {t.completed} · วิ่งอยู่ {t.running} · รอ {t.scheduled}
               </p>
             </div>
-            {admin ? (
-              <>
-                <div>
-                  <span>เบิกและค่าใช้จ่าย</span>
-                  <strong>
-                    <small>฿</small>
-                    {money(t.outgoing)}
-                  </strong>
-                  <p>รวมค่าซ่อมและค่าขึ้นแทน</p>
-                </div>
-                <div>
-                  <span>ยอดหักเงิน</span>
-                  <strong className="deduction">
-                    <small>฿</small>
-                    {money(t.deductions)}
-                  </strong>
-                  <p>ดำเนินการแล้ว ฿{money(t.paidDeduction)}</p>
-                </div>
-                <div>
-                  <span>จ่ายสุทธิแล้ว</span>
-                  <strong>
-                    <small>฿</small>
-                    {money(t.netPaid)}
-                  </strong>
-                  <p>จ่ายแล้ว − หักแล้ว</p>
-                </div>
-              </>
-            ) : (
-              <div>
-                <span>จังหวัดปลายทาง</span>
-                <strong>
-                  {t.provinces.length}
-                  <small>จังหวัด</small>
-                </strong>
-                <p>รวมจังหวัดพ่วง</p>
-              </div>
-            )}
-          </div>
-          {admin && (
-            <div className="report-pending-note">
-              ยอดบันทึกรวมรายการรอดำเนินการ · รอจ่าย ฿{money(t.pendingOut)} · รอหัก ฿
-              {money(t.pendingDeduction)}
+            <div>
+              <span>เบิกและค่าใช้จ่าย</span>
+              <strong>
+                <small>฿</small>
+                {money(t.outgoing)}
+              </strong>
+              <p>รวมค่าซ่อมและค่าขึ้นแทน</p>
             </div>
-          )}
+            <div>
+              <span>ยอดหักเงิน</span>
+              <strong className="deduction">
+                <small>฿</small>
+                {money(t.deductions)}
+              </strong>
+              <p>ดำเนินการแล้ว ฿{money(t.paidDeduction)}</p>
+            </div>
+            <div>
+              <span>จ่ายสุทธิแล้ว</span>
+              <strong>
+                <small>฿</small>
+                {money(t.netPaid)}
+              </strong>
+              <p>จ่ายแล้ว − หักแล้ว</p>
+            </div>
+          </div>
+          <div className="report-pending-note">
+            ยอดบันทึกรวมรายการรอดำเนินการ · รอจ่าย ฿{money(t.pendingOut)} · รอหัก ฿
+            {money(t.pendingDeduction)}
+          </div>
           <div className="report-tabs" role="tablist" aria-label="หมวดรายงาน">
             {tabs.map(([id, label, count]) => (
               <button
@@ -460,12 +451,10 @@ export function ReportPanel(props: ReportProps) {
                       <strong>{d.totals.trips}</strong>
                       <small>เที่ยว</small>
                     </span>
-                    {admin && (
-                      <span className="driver-report-amount">
-                        <strong>฿{money(d.totals.outgoing)}</strong>
-                        <small>{d.totals.entryCount} รายการเงิน</small>
-                      </span>
-                    )}
+                    <span className="driver-report-amount">
+                      <strong>฿{money(d.totals.outgoing)}</strong>
+                      <small>{d.totals.entryCount} รายการเงิน</small>
+                    </span>
                     <ChevronRight size={18} />
                   </button>
                 ))
@@ -473,18 +462,18 @@ export function ReportPanel(props: ReportProps) {
                 <NoRows>ไม่มีข้อมูลคนรถที่ตรงกับช่วงวันที่หรือคำค้น</NoRows>
               )}
               <p className="table-footnote">
-                แตะชื่อคนรถเพื่อดูเที่ยววิ่ง เส้นทาง{admin ? ' และรายละเอียดการเงิน' : ''}
+                แตะคนรถเพื่อดูเที่ยววิ่ง เส้นทาง และรายละเอียดการเงิน
               </p>
             </div>
           )}
           {tab === 'jobs' && <JobRows jobs={data.jobs} onJob={onJob} />}
-          {tab === 'money' && admin && (
+          {tab === 'money' && (
             <>
               <FinancialBreakdown data={data} />
               <EntryRows entries={data.entries} onEntry={onEntry} />
             </>
           )}
-          {tab === 'cancellations' && admin && (
+          {tab === 'cancellations' && (
             <CancellationRows items={data.cancellations} entries={data.entries} onEntry={onEntry} />
           )}
         </>
@@ -493,13 +482,19 @@ export function ReportPanel(props: ReportProps) {
   )
 }
 
-export function DriverReport({ driver, ...props }: ReportProps & { driver: ReportDriver }) {
+export function DriverReport({
+  driver,
+  contact,
+  queued,
+  ...props
+}: ReportProps & {
+  driver: ReportDriver
+  contact?: Driver
+  queued?: QueueItem
+}) {
   const data = forDriver(props.data, driver.id),
     t = totals(data)
   const [tab, setTab] = useState('jobs')
-  useEffect(() => {
-    if (!props.admin) setTab('jobs')
-  }, [props.admin])
   function download() {
     exportCsv(`รายงาน-${driver.plate}-${props.period.start}-${props.period.end}.csv`, [
       ['คนรถ', driver.name, 'ทะเบียน', driver.plate],
@@ -514,16 +509,14 @@ export function DriverReport({ driver, ...props }: ReportProps & { driver: Repor
         '',
         '',
       ]),
-      ...(props.admin
-        ? data.entries.map((e) => [
-            e.date,
-            kinds[e.kind],
-            e.description,
-            entryStates[e.status],
-            e.amount / 100,
-            e.recipient,
-          ])
-        : []),
+      ...data.entries.map((e) => [
+        e.date,
+        kinds[e.kind],
+        e.description,
+        entryStates[e.status],
+        e.amount / 100,
+        e.recipient,
+      ]),
     ])
   }
   return (
@@ -532,6 +525,7 @@ export function DriverReport({ driver, ...props }: ReportProps & { driver: Repor
         <div>
           <span className="dossier-plate">{driver.plate}</span>
           <h3>{driver.name}</h3>
+          {contact?.truckType && <p className="dossier-truck-type">{contact.truckType}</p>}
         </div>
         <button
           className="btn secondary small"
@@ -540,6 +534,14 @@ export function DriverReport({ driver, ...props }: ReportProps & { driver: Repor
         >
           <ArrowDownToLine size={16} /> CSV
         </button>
+      </div>
+      <div className="driver-contact-bar">
+        {telephoneHref(contact?.phone) ? (
+          <PhoneLink phone={contact?.phone} name={driver.name} />
+        ) : (
+          <span className="contact-unavailable">ยังไม่ได้ระบุเบอร์โทร</span>
+        )}
+        {queued && <Badge state={queueStatus(queued)}>{queueStates[queueStatus(queued)]}</Badge>}
       </div>
       <PeriodPicker {...props} />
       <ReportState {...props} />
@@ -559,31 +561,25 @@ export function DriverReport({ driver, ...props }: ReportProps & { driver: Repor
           {t.provinces.length > 0 && (
             <p className="driver-destinations">{t.provinces.join(' · ')}</p>
           )}
-          {props.admin && <FinancialBreakdown data={data} />}
+          <FinancialBreakdown data={data} />
           <div className="report-tabs" role="tablist" aria-label="รายละเอียดคนรถ">
             <button role="tab" aria-selected={tab === 'jobs'} onClick={() => setTab('jobs')}>
               เที่ยววิ่ง <span>{data.jobs.length}</span>
             </button>
-            {props.admin && (
-              <>
-                <button role="tab" aria-selected={tab === 'money'} onClick={() => setTab('money')}>
-                  การเงิน <span>{data.entries.length}</span>
-                </button>
-                <button
-                  role="tab"
-                  aria-selected={tab === 'cancellations'}
-                  onClick={() => setTab('cancellations')}
-                >
-                  ยกเลิก / ขึ้นแทน <span>{data.cancellations.length}</span>
-                </button>
-              </>
-            )}
+            <button role="tab" aria-selected={tab === 'money'} onClick={() => setTab('money')}>
+              การเงิน <span>{data.entries.length}</span>
+            </button>
+            <button
+              role="tab"
+              aria-selected={tab === 'cancellations'}
+              onClick={() => setTab('cancellations')}
+            >
+              ยกเลิก / ขึ้นแทน <span>{data.cancellations.length}</span>
+            </button>
           </div>
           {tab === 'jobs' && <JobRows jobs={data.jobs} onJob={props.onJob} />}
-          {tab === 'money' && props.admin && (
-            <EntryRows entries={data.entries} onEntry={props.onEntry} />
-          )}
-          {tab === 'cancellations' && props.admin && (
+          {tab === 'money' && <EntryRows entries={data.entries} onEntry={props.onEntry} />}
+          {tab === 'cancellations' && (
             <CancellationRows
               items={data.cancellations}
               entries={props.data.entries}

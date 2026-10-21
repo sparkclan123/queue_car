@@ -16,7 +16,7 @@ export function demoData(): Data {
     name,
     plate,
     truckType,
-    phone: '',
+    phone: i === 0 ? '080-000-0000' : '',
     active: true,
     activeJobId: i > 3 ? `j${i - 3}` : '',
     createdAt: now,

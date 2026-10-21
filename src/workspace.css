@@ -11,6 +11,139 @@
 body {
   font-size: 14px;
 }
+.phone-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  min-height: 44px;
+  padding: 10px 14px;
+  border: 1px solid #d5e3dd;
+  border-radius: 7px;
+  color: #285d4a;
+  background: #eef5f0;
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 14px;
+  white-space: nowrap;
+  touch-action: manipulation;
+}
+.phone-link:hover {
+  background: #e0eee5;
+}
+.phone-link-compact {
+  width: 44px;
+  min-width: 44px;
+  padding: 0;
+}
+.queue-list .queue-record {
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 8px;
+  padding: 5px 12px;
+  min-height: 76px;
+}
+.dispatch-board .queue-record.first {
+  padding-left: 9px;
+}
+.queue-open {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+  min-height: 64px;
+  gap: 11px;
+  padding: 8px 2px;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  border-radius: 5px;
+  color: #2c424e;
+  touch-action: manipulation;
+}
+.queue-open:hover {
+  background: #edf1ee;
+}
+.queue-identity {
+  display: block;
+  min-width: 0;
+  flex: 1;
+}
+.queue-identity strong {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 14px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.queue-identity strong svg {
+  flex-shrink: 0;
+  color: #8d9b9e;
+}
+.queue-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  margin-top: 4px;
+}
+.queue-plate {
+  color: #6c7c84;
+  font-size: 12px;
+}
+.queue-joined {
+  display: block;
+  color: #7a898f;
+  font-size: 11px;
+  margin-top: 5px;
+}
+.queue-record-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.queue-record-actions .icon-btn {
+  width: 44px;
+  height: 44px;
+}
+.driver-contact-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 20px;
+}
+.driver-contact-bar .phone-link {
+  flex: 1;
+}
+.contact-unavailable,
+.dossier-truck-type {
+  color: #78898f;
+  font-size: 12px;
+}
+.driver-card-top .driver-card-open {
+  flex: 1;
+  min-width: 0;
+  min-height: 48px;
+  text-align: left;
+  margin-left: 10px;
+  color: #2c424e;
+}
+.driver-card-open strong {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 15px;
+}
+.driver-card-open small {
+  display: block;
+  color: #7a888c;
+  font-size: 12px;
+  margin-top: 3px;
+}
 button {
   -webkit-appearance: none;
   appearance: none;
@@ -1452,5 +1585,140 @@ textarea:focus {
   }
   .demo-banner {
     margin-bottom: 14px;
+  }
+}
+
+@media (max-width: 700px) {
+  .queue-list .queue-record,
+  .dispatch-board .queue-record {
+    padding: 3px 10px;
+    gap: 4px;
+    min-height: 74px;
+  }
+  .dispatch-board .queue-record.first {
+    padding-left: 7px;
+  }
+  .queue-open {
+    gap: 8px;
+  }
+  .queue-open .queue-number {
+    width: 24px;
+    min-width: 24px;
+    height: 28px;
+  }
+  .queue-record .badge {
+    font-size: 10px;
+    padding: 2px 5px;
+  }
+  .queue-meta {
+    gap: 4px 6px;
+  }
+  .queue-record-actions {
+    gap: 2px;
+  }
+  .driver-dossier-heading {
+    gap: 10px;
+    margin-bottom: 12px;
+  }
+  .driver-dossier-heading h3 {
+    font-size: 21px;
+  }
+  .driver-contact-bar {
+    margin-bottom: 16px;
+  }
+  .driver-contact-bar .phone-link {
+    min-height: 48px;
+  }
+  .driver-contact-bar .badge {
+    white-space: nowrap;
+  }
+  .driver-report-detail .period-picker {
+    margin-bottom: 14px;
+  }
+  .report-tabs > button,
+  .tabs > button,
+  .period-shortcuts > button {
+    min-height: 44px;
+  }
+  .modal-head .icon-btn,
+  .refresh-report {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  .page-heading h1 {
+    font-size: 22px;
+  }
+  .page-heading {
+    margin-bottom: 14px;
+  }
+  .drivers-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+  }
+  .driver-card {
+    padding: 14px;
+  }
+  .driver-card-top {
+    margin-bottom: 8px;
+  }
+  .driver-card .avatar {
+    width: 36px;
+    height: 36px;
+    font-size: 15px;
+  }
+  .driver-card .driver-phone {
+    margin: 6px 0 10px;
+  }
+  .driver-card .phone-link {
+    width: 100%;
+  }
+  .driver-card-bottom {
+    padding-top: 9px;
+  }
+  .driver-card-bottom .text-btn {
+    min-height: 44px;
+  }
+  .finance-stats {
+    gap: 8px;
+    margin-bottom: 16px;
+  }
+  .finance-stats .stat-card {
+    padding: 12px;
+  }
+  .finance-stats .stat-card:last-child {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .finance-stats .stat-card:last-child .stat-value {
+    margin: 0;
+  }
+  .finance-stats .stat-card:last-child .stat-icon {
+    display: none;
+  }
+  .phone-link,
+  .queue-more {
+    -webkit-tap-highlight-color: transparent;
+  }
+}
+@media (max-width: 360px) {
+  .queue-record-actions {
+    flex-direction: column;
+  }
+  .queue-record-actions .phone-link-compact,
+  .queue-record-actions .icon-btn {
+    width: 44px;
+    height: 44px;
+  }
+  .queue-record .queue-identity strong {
+    font-size: 13px;
+  }
+  .driver-contact-bar {
+    align-items: stretch;
+  }
+  .driver-contact-bar .phone-link {
+    flex-basis: 100%;
   }
 }
