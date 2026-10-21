@@ -2306,3 +2306,103 @@ button.chart-row:hover {
     max-height: 480px;
   }
 }
+
+.province-picker {
+  min-width: 0;
+}
+.province-label {
+  display: block;
+  position: relative;
+  font-size: 14px;
+  font-weight: 500;
+  margin-bottom: 7px;
+}
+.province-combobox {
+  flex: 1;
+  min-width: 0;
+  position: relative;
+}
+.province-input-wrap {
+  position: relative;
+}
+.form .province-input-wrap input {
+  min-height: 46px;
+  padding-right: 44px;
+  font-size: 16px;
+}
+.province-toggle {
+  position: absolute;
+  right: 1px;
+  top: 1px;
+  width: 44px;
+  height: calc(100% - 2px);
+  min-height: 44px;
+  display: grid;
+  place-items: center;
+  color: #7a9098;
+  border-radius: 7px;
+}
+.province-toggle:hover {
+  background: #edf2f1;
+}
+.province-picker .inline-input > .btn {
+  flex-shrink: 0;
+  min-height: 46px;
+  padding-inline: 13px;
+}
+.province-dropdown {
+  position: absolute;
+  top: calc(100% + 5px);
+  left: 0;
+  right: 0;
+  z-index: 5;
+  background: #fff;
+  border: 1px solid #cbd8dc;
+  border-radius: 8px;
+  box-shadow: 0 6px 20px #294b3b18;
+  overflow: hidden;
+}
+.province-result-count {
+  padding: 8px 12px;
+  font-size: 11px;
+  color: #788c94;
+  border-bottom: 1px solid #edf1f0;
+}
+.province-options {
+  position: relative;
+  list-style: none;
+  margin: 0;
+  padding: 4px;
+  max-height: 220px;
+  max-height: min(220px, 32dvh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+.province-options:empty {
+  display: none;
+}
+.province-options button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 5px;
+  min-height: 44px;
+  border-radius: 5px;
+  padding: 10px 8px;
+  text-align: left;
+  font-size: 14px;
+  color: #365665;
+}
+.province-options button.active,
+.province-options button:hover {
+  background: #edf3f4;
+}
+.province-picker .stops:not(:empty) {
+  margin-top: 10px;
+}
+.province-picker .stops .icon-btn {
+  min-width: 44px;
+  min-height: 44px;
+}

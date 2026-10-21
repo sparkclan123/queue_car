@@ -3,11 +3,12 @@ import type { FormEvent } from 'react'
 import { ArrowRight, Camera, Check, LoaderCircle, Plus, X } from 'lucide-react'
 import { useStore } from '../lib/store'
 import { errorMessage } from '../lib/firebase'
-import { kinds, optionalSatang, provinces, toSatang, today } from '../lib/model'
+import { kinds, optionalSatang, toSatang, today } from '../lib/model'
 import type { Driver, Entry, Evidence, QueueItem } from '../lib/model'
 import { compressEvidence } from '../lib/evidence'
 import { Avatar, Empty, Hint } from './ui'
 import { DateInput } from './DateInput'
+import { ProvincePicker } from './ProvincePicker'
 export function useSubmit(onDone: () => void) {
   const [busy, setBusy] = useState(false),
     [error, setError] = useState('')
@@ -206,7 +207,6 @@ export function QueueForm({
 export function JobForm({ item, onDone }: { item: QueueItem; onDone: () => void }) {
   const s = useStore(),
     [stops, setStops] = useState<string[]>([]),
-    [province, setProvince] = useState(''),
     submit = useSubmit(onDone)
   return (
     <form
@@ -230,50 +230,12 @@ export function JobForm({ item, onDone }: { item: QueueItem; onDone: () => void 
         วันที่ออกงาน <b>*</b>
         <DateInput name="date" required min={today()} defaultValue={today()} />
       </label>
-      <label>
-        จังหวัดปลายทาง <b>*</b>
-        <div className="inline-input">
-          <select
-            value={province}
-            onChange={(e) => setProvince(e.target.value)}
-            aria-label="เลือกจังหวัด"
-          >
-            <option value="">เลือกจังหวัด…</option>
-            {provinces.map((p) => (
-              <option key={p} value={p}>
-                {p}
-              </option>
-            ))}
-          </select>
-          <button
-            className="btn secondary"
-            type="button"
-            disabled={!province || stops.length >= 8}
-            onClick={() => {
-              setStops([...stops, province])
-              setProvince('')
-            }}
-          >
-            <Plus size={18} /> เพิ่ม
-          </button>
-        </div>
-      </label>
-      <div className="stops">
-        {stops.map((p, i) => (
-          <div key={i}>
-            <span className="stop-number">{i + 1}</span>
-            <span>{p}</span>
-            <button
-              type="button"
-              className="icon-btn"
-              aria-label={`ลบ ${p}`}
-              onClick={() => setStops(stops.filter((_, j) => i !== j))}
-            >
-              <X size={16} />
-            </button>
-          </div>
-        ))}
-      </div>
+      <ProvincePicker
+        label="จังหวัดปลายทาง"
+        inputLabel="เลือกจังหวัด"
+        stops={stops}
+        onChange={setStops}
+      />
       <Hint>เพิ่มจังหวัดตามลำดับการวิ่ง พ่วงได้สูงสุด 8 จุดในเที่ยวเดียว</Hint>
       <label>
         รายละเอียดงาน <span className="optional">ผู้เข้าชมทุกคนเห็น</span>
@@ -292,7 +254,6 @@ export function CancelQueueForm({ item, onDone }: { item: QueueItem; onDone: () 
   const s = useStore(),
     [replacement, setReplacement] = useState(''),
     [stops, setStops] = useState<string[]>([]),
-    [province, setProvince] = useState(''),
     submit = useSubmit(onDone)
   return (
     <form
@@ -352,48 +313,12 @@ export function CancelQueueForm({ item, onDone }: { item: QueueItem; onDone: () 
             วันที่ขึ้นงานแทน <b>*</b>
             <DateInput name="jobDate" defaultValue={today()} min={today()} required />
           </label>
-          <label>
-            จังหวัด / จุดส่งตามลำดับ <b>*</b>
-            <div className="inline-input">
-              <select
-                aria-label="จังหวัดขึ้นงานแทน"
-                value={province}
-                onChange={(e) => setProvince(e.target.value)}
-              >
-                <option value="">เลือกจังหวัด…</option>
-                {provinces.map((p) => (
-                  <option key={p}>{p}</option>
-                ))}
-              </select>
-              <button
-                type="button"
-                className="btn secondary"
-                disabled={!province || stops.length >= 8}
-                onClick={() => {
-                  setStops([...stops, province])
-                  setProvince('')
-                }}
-              >
-                <Plus size={16} /> เพิ่ม
-              </button>
-            </div>
-          </label>
-          <div className="stops">
-            {stops.map((p, i) => (
-              <div key={i}>
-                <span className="stop-number">{i + 1}</span>
-                <span>{p}</span>
-                <button
-                  type="button"
-                  className="icon-btn"
-                  aria-label={`ลบจุดส่ง ${i + 1} ${p}`}
-                  onClick={() => setStops(stops.filter((_, index) => index !== i))}
-                >
-                  <X size={16} />
-                </button>
-              </div>
-            ))}
-          </div>
+          <ProvincePicker
+            label="จังหวัด / จุดส่งตามลำดับ"
+            inputLabel="จังหวัดขึ้นงานแทน"
+            stops={stops}
+            onChange={setStops}
+          />
         </>
       )}
       <div className="form-section-title">
