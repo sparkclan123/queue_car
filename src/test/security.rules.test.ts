@@ -8,6 +8,7 @@ import type { RulesTestEnvironment } from '@firebase/rules-unit-testing'
 import { readFileSync } from 'node:fs'
 import { cancellationPlan, cancelQueueTransaction } from '../lib/cancellations'
 import { today } from '../lib/model'
+import { changeQueueStatus } from '../lib/queue'
 import type { CancellationInput, Job, QueueItem } from '../lib/model'
 import { readReportRange } from '../lib/reports'
 import type { Firestore } from 'firebase/firestore'
@@ -119,6 +120,7 @@ describe('cancellation, replacement and range reporting', () => {
   it('atomically cancels original, assigns replacement and links unequal pending money entries', async () => {
     await replacementSeed()
     const db = owner() as unknown as Firestore
+    await updateDoc(doc(db, 'queue', 'd1'), { status: 'heading' })
     const p = await cancelQueueTransaction(db, 'd1', input, ownerEmail)
     expect((await getDoc(doc(db, 'queue', 'd1'))).exists()).toBe(false)
     expect((await getDoc(doc(db, 'queue', 'd2'))).exists()).toBe(false)
@@ -303,6 +305,67 @@ describe('Guest and unauthorized isolation', () => {
   })
 })
 describe('Admin workflows and constraints', () => {
+  it('changes a legacy queue to heading and back without moving it or creating a job or payment', async () => {
+    const db = owner() as unknown as Firestore
+    const item = { id: 'd1', ...q }
+    await changeQueueStatus(db, item, 'heading', ownerEmail)
+    const guestQueue = await getDoc(doc(env.unauthenticatedContext().firestore(), 'queue', 'd1'))
+    expect(guestQueue.data()).toEqual({ ...q, status: 'heading' })
+    expect((await getDoc(doc(db, 'drivers', 'd1'))).data()?.activeJobId).toBe('')
+    expect((await getDocs(collection(db, 'jobs'))).size).toBe(1)
+    expect((await getDocs(collection(db, 'entries'))).size).toBe(1)
+    const audits = await getDocs(collection(db, 'audits'))
+    expect(audits.docs.some((d) => d.data().detail.includes('กำลังไปขึ้นงาน'))).toBe(true)
+    await changeQueueStatus(db, { ...item, status: 'heading' }, 'waiting', ownerEmail)
+    expect((await getDoc(doc(db, 'queue', 'd1'))).data()).toEqual({ ...q, status: 'waiting' })
+  })
+  it('only lets admins change queue status and rejects unsupported statuses', async () => {
+    for (const db of [env.unauthenticatedContext().firestore(), outsider()]) {
+      await assertFails(updateDoc(doc(db, 'queue', 'd1'), { status: 'heading' }))
+    }
+    for (const status of ['running', '', null, 1]) {
+      await assertFails(updateDoc(doc(owner(), 'queue', 'd1'), { status }))
+    }
+  })
+  it('accepts a new waiting queue and preserves heading through a driver edit and tail move', async () => {
+    const db = owner()
+    const create = writeBatch(db)
+    create.set(doc(db, 'drivers', 'd2'), { ...driver, name: 'คนใหม่' })
+    await create.commit()
+    const join = writeBatch(db)
+    join.set(doc(db, 'queue', 'd2'), {
+      ...q,
+      driverId: 'd2',
+      driverName: 'คนใหม่',
+      joinedAt: 2,
+      status: 'waiting',
+    })
+    join.update(doc(db, 'settings', 'queue'), { tailAt: 2 })
+    await assertSucceeds(join.commit())
+    await updateDoc(doc(db, 'queue', 'd1'), { status: 'heading' })
+    const edit = writeBatch(db)
+    edit.update(doc(db, 'drivers', 'd1'), { name: 'ชื่อใหม่' })
+    edit.update(doc(db, 'queue', 'd1'), { driverName: 'ชื่อใหม่' })
+    await assertSucceeds(edit.commit())
+    const move = writeBatch(db)
+    move.update(doc(db, 'queue', 'd1'), { joinedAt: 3 })
+    move.update(doc(db, 'settings', 'queue'), { tailAt: 3 })
+    await assertSucceeds(move.commit())
+    expect((await getDoc(doc(db, 'queue', 'd1'))).data()).toMatchObject({
+      status: 'heading',
+      joinedAt: 3,
+      driverName: 'ชื่อใหม่',
+    })
+  })
+  it('does not create duplicate status history when two clients submit the same change', async () => {
+    const db = owner() as unknown as Firestore
+    const results = await Promise.allSettled([
+      changeQueueStatus(db, { id: 'd1', ...q }, 'heading', ownerEmail),
+      changeQueueStatus(db, { id: 'd1', ...q }, 'heading', ownerEmail),
+    ])
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1)
+    expect((await getDocs(collection(db, 'audits'))).size).toBe(2)
+  })
   it('allows admin private records', async () => {
     await assertSucceeds(getDoc(doc(owner(), 'entries', 'e1', 'evidence', 'i1')))
     await assertSucceeds(getDocs(collection(owner(), 'drivers')))
@@ -318,14 +381,18 @@ describe('Admin workflows and constraints', () => {
   it('does not allow a queue jump without advancing its sequence', async () => {
     await assertFails(updateDoc(doc(owner(), 'queue', 'd1'), { joinedAt: 999 }))
   })
-  it('assigns a multi-province job and releases the queue in one batch', async () => {
+  it.each(['legacy', 'heading'])('assigns a multi-province job from a %s queue', async (state) => {
     const db = owner(),
       b = writeBatch(db)
+    if (state === 'heading') await updateDoc(doc(db, 'queue', 'd1'), { status: 'heading' })
     b.set(doc(db, 'jobs', 'j1'), job)
     b.delete(doc(db, 'queue', 'd1'))
     b.update(doc(db, 'drivers', 'd1'), { activeJobId: 'j1', updatedAt: 2 })
     await assertSucceeds(b.commit())
     expect((await getDoc(doc(db, 'queue', 'd1'))).exists()).toBe(false)
+    await expect(
+      changeQueueStatus(db as unknown as Firestore, { id: 'd1', ...q }, 'heading', ownerEmail),
+    ).rejects.toThrow('คิวหรือสถานะถูกเปลี่ยนไปแล้ว')
   })
   it('does not allow standalone job creation without locking driver', async () => {
     await assertFails(setDoc(doc(owner(), 'jobs', 'j1'), job))

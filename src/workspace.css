@@ -191,6 +191,22 @@ textarea:focus {
   color: #466f88;
   background: #edf3f6;
 }
+.badge.heading {
+  color: #365f7b;
+  background: #e8f0f6;
+}
+.badge.waiting {
+  color: #7a684b;
+  background: #f4eee3;
+}
+.queue-status-line {
+  margin-top: 4px;
+  line-height: 1.4;
+}
+.queue-status-line .badge {
+  font-size: 10px;
+  padding: 2px 6px;
+}
 .badge.completed,
 .badge.paid {
   color: #476b5b;

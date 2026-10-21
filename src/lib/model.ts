@@ -16,6 +16,16 @@ export type QueueItem = {
   plate: string
   truckType: string
   joinedAt: number
+  // Queues saved before this field was introduced are treated as waiting.
+  status?: QueueStatus
+}
+export type QueueStatus = 'waiting' | 'heading'
+export const queueStates: Record<QueueStatus, string> = {
+  waiting: 'รอคิว',
+  heading: 'กำลังไปขึ้นงาน',
+}
+export function queueStatus(item: QueueItem): QueueStatus {
+  return item.status ?? 'waiting'
 }
 export type Job = {
   id: string

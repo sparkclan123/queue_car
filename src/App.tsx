@@ -18,6 +18,7 @@ import {
   LogOut,
   MapPin,
   MoreHorizontal,
+  Navigation,
   Plus,
   Radio,
   Search,
@@ -43,6 +44,8 @@ import {
   jobStates,
   kinds,
   money,
+  queueStates,
+  queueStatus,
   shiftDate,
   today,
 } from './lib/model'
@@ -179,6 +182,16 @@ export default function App() {
       action: () => s.moveToEnd(item),
     })
   }
+  function updateQueueStatus(item: QueueItem) {
+    const status = queueStatus(item) === 'heading' ? 'waiting' : 'heading'
+    setDialog({
+      type: 'confirm',
+      title: status === 'heading' ? 'กำลังไปขึ้นงาน' : 'กลับเป็นรอคิว',
+      text: `${item.driverName} · ${item.plate} จะเปลี่ยนเป็น “${queueStates[status]}” โดยยังอยู่ในลำดับคิวเดิม และยังไม่สร้างเที่ยววิ่ง`,
+      label: 'ยืนยันสถานะ',
+      action: () => s.setQueueStatus(item, status),
+    })
+  }
   function dateControl() {
     return (
       <div className="date-control">
@@ -257,6 +270,9 @@ export default function App() {
                     <span className="plate">{q.plate}</span>
                     <span className="truck-type">{q.truckType}</span>
                   </span>
+                  <div className="queue-status-line">
+                    <Badge state={queueStatus(q)}>{queueStates[queueStatus(q)]}</Badge>
+                  </div>
                 </div>
                 <div className="queue-time">
                   <Clock3 size={13} />
@@ -293,18 +309,12 @@ export default function App() {
                     </button>
                     <button
                       className="icon-btn"
-                      aria-label={`ย้ายไปท้ายคิว ${q.driverName}`}
-                      title="ย้ายไปท้ายคิว"
-                      onClick={() => moveQueueToEnd(q)}
+                      aria-label={`จัดการคิว ${q.driverName}`}
+                      title="จัดการคิวและสถานะ"
+                      aria-haspopup="dialog"
+                      onClick={() => setDialog({ type: 'queue-actions', item: q })}
                     >
-                      <ListEnd size={17} />
-                    </button>
-                    <button
-                      className="icon-btn danger-text"
-                      aria-label={`ยกเลิกคิว ${q.driverName}`}
-                      onClick={() => setDialog({ type: 'cancel-queue', item: q })}
-                    >
-                      <X size={17} />
+                      <MoreHorizontal size={20} />
                     </button>
                   </div>
                 )}
@@ -624,7 +634,9 @@ export default function App() {
                     {queueContent()}
                   </section>
                   <Hint>
-                    รถที่จ่ายงานแล้วจะออกจากคิวอัตโนมัติ เมื่อจบงาน ผู้ดูแลสามารถลงคิวรอบใหม่ได้
+                    {s.admin
+                      ? 'กด … เพื่อเปลี่ยนเป็น “กำลังไปขึ้นงาน” ก่อนจ่ายงาน รถยังอยู่ในคิวเดิม เมื่อจ่ายงานแล้วจะออกจากคิวอัตโนมัติ'
+                      : 'รถที่กำลังไปขึ้นงานยังอยู่ในคิวเดิม เมื่อผู้ดูแลจ่ายงานแล้วจะแสดงในหน้างานวิ่ง'}
                   </Hint>
                 </>
               )}
@@ -868,7 +880,7 @@ export default function App() {
                     {s.data.drivers
                       .filter((d) => `${d.name} ${d.plate}`.includes(search))
                       .map((d, i) => {
-                        const inQueue = queue.some((q) => q.id === d.id)
+                        const inQueue = queue.find((q) => q.id === d.id)
                         return (
                           <article className="driver-card" key={d.id}>
                             <div className="driver-card-top">
@@ -908,7 +920,7 @@ export default function App() {
                                     : d.activeJobId
                                       ? 'running'
                                       : inQueue
-                                        ? 'scheduled'
+                                        ? queueStatus(inQueue)
                                         : 'completed'
                                 }
                               >
@@ -917,7 +929,7 @@ export default function App() {
                                   : d.activeJobId
                                     ? 'มีงานที่ยังไม่จบ'
                                     : inQueue
-                                      ? 'อยู่ในคิว'
+                                      ? queueStates[queueStatus(inQueue)]
                                       : 'พร้อมรับงาน'}
                               </Badge>
                               {d.active && !d.activeJobId && !inQueue && (
@@ -1083,6 +1095,19 @@ export default function App() {
                   </small>
                 </div>
               </div>
+              <Badge state={queueStatus(dialog.item)}>
+                {queueStates[queueStatus(dialog.item)]}
+              </Badge>
+              <button onClick={() => updateQueueStatus(dialog.item)}>
+                <Navigation size={20} />
+                <span>
+                  <strong>
+                    {queueStatus(dialog.item) === 'heading' ? 'กลับเป็นรอคิว' : 'กำลังไปขึ้นงาน'}
+                  </strong>
+                  <small>เปลี่ยนสถานะโดยคงลำดับคิวเดิม</small>
+                </span>
+                <ChevronRight size={17} />
+              </button>
               <button onClick={() => setDialog({ type: 'job', item: dialog.item })}>
                 <Truck size={20} />
                 <span>

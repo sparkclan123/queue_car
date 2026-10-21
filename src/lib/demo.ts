@@ -58,6 +58,7 @@ export function demoData(): Data {
       plate: d.plate,
       truckType: d.truckType,
       joinedAt: now - (4 - i) * 28 * 60000,
+      status: 'waiting',
     })),
     jobs: [
       { ...historicalCancellation.job!, status: 'completed' },

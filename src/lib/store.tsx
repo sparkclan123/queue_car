@@ -17,7 +17,8 @@ import {
 import { auth, db, errorMessage, isDemo, resumeAuth } from './firebase'
 import { demoData } from './demo'
 import { cancellationPlan, cancelQueueTransaction } from './cancellations'
-import { emptyData, today } from './model'
+import { changeQueueStatus, validateQueueStatusChange } from './queue'
+import { emptyData, queueStates, today } from './model'
 import type {
   Audit,
   CancellationInput,
@@ -27,6 +28,7 @@ import type {
   Evidence,
   Job,
   QueueItem,
+  QueueStatus,
 } from './model'
 
 type Store = {
@@ -50,6 +52,7 @@ type Store = {
   joinQueue: (id: string) => Promise<void>
   cancelQueue: (id: string, input: CancellationInput) => Promise<void>
   moveToEnd: (item: QueueItem) => Promise<void>
+  setQueueStatus: (item: QueueItem, status: QueueStatus) => Promise<void>
   saveJob: (q: QueueItem, date: string, provinces: string[], note: string) => Promise<void>
   jobStatus: (j: Job, status: Job['status']) => Promise<void>
   saveEntry: (
@@ -266,6 +269,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       plate: d.plate,
       truckType: d.truckType,
       joinedAt: Date.now(),
+      status: 'waiting',
     })
     if (isDemo) {
       const d = data.drivers.find((d) => d.id === id)
@@ -285,6 +289,20 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       tx.set(seq.ref, { tailAt })
       tx.set(doc(collection(db!, 'audits')), audit('ลงคิว', d.data().name))
     })
+  }
+  const setQueueStatus: Store['setQueueStatus'] = async (item, status) => {
+    requireAdmin()
+    if (isDemo) {
+      const current = data.queue.find((q) => q.id === item.id)
+      validateQueueStatusChange(current, item, status)
+      demoUpdate(
+        (d) => ({ ...d, queue: d.queue.map((q) => (q.id === item.id ? { ...q, status } : q)) }),
+        'สถานะคิว',
+        `${current!.driverName} · ${queueStates[status]}`,
+      )
+      return
+    }
+    await changeQueueStatus(db!, item, status, email)
   }
   const cancelQueue: Store['cancelQueue'] = async (id, input) => {
     requireAdmin()
@@ -513,6 +531,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         joinQueue,
         cancelQueue,
         moveToEnd,
+        setQueueStatus,
         saveJob,
         jobStatus,
         saveEntry,

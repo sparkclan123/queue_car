@@ -24,10 +24,11 @@ service cloud.firestore {
    allow delete: if false;
   }
   match /queue/{id} {
-   function valid() { let d=request.resource.data; return d.keys().hasOnly(['driverId','driverName','plate','truckType','joinedAt']) && d.driverId == id && d.driverName == driver(id).name && d.plate == driver(id).plate && d.truckType == driver(id).truckType && d.joinedAt is int && driver(id).active && driver(id).activeJobId == ''; }
+   function validFields() { let d=request.resource.data; return d.keys().hasOnly(['driverId','driverName','plate','truckType','joinedAt','status']) && d.get('status', 'waiting') in ['waiting','heading']; }
+   function valid() { let d=request.resource.data; return validFields() && d.driverId == id && d.driverName == driver(id).name && d.plate == driver(id).plate && d.truckType == driver(id).truckType && d.joinedAt is int && driver(id).active && driver(id).activeJobId == ''; }
    allow read: if true;
    allow create: if admin() && valid() && request.resource.data.joinedAt == getAfter(/databases/$(database)/documents/settings/queue).data.tailAt;
-   allow update: if admin() && request.resource.data.keys().hasOnly(['driverId','driverName','plate','truckType','joinedAt']) && request.resource.data.driverId == resource.data.driverId && (request.resource.data.joinedAt == resource.data.joinedAt || (request.resource.data.joinedAt > resource.data.joinedAt && request.resource.data.joinedAt == getAfter(/databases/$(database)/documents/settings/queue).data.tailAt)) && request.resource.data.driverName == getAfter(/databases/$(database)/documents/drivers/$(id)).data.name && request.resource.data.plate == getAfter(/databases/$(database)/documents/drivers/$(id)).data.plate && request.resource.data.truckType == getAfter(/databases/$(database)/documents/drivers/$(id)).data.truckType;
+   allow update: if admin() && validFields() && request.resource.data.driverId == resource.data.driverId && (request.resource.data.joinedAt == resource.data.joinedAt || (request.resource.data.joinedAt > resource.data.joinedAt && request.resource.data.joinedAt == getAfter(/databases/$(database)/documents/settings/queue).data.tailAt)) && request.resource.data.driverName == getAfter(/databases/$(database)/documents/drivers/$(id)).data.name && request.resource.data.plate == getAfter(/databases/$(database)/documents/drivers/$(id)).data.plate && request.resource.data.truckType == getAfter(/databases/$(database)/documents/drivers/$(id)).data.truckType;
    allow delete: if admin();
   }
   match /jobs/{id} {
