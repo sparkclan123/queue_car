@@ -22,6 +22,7 @@ import { changeQueueStatus, validateQueueStatusChange } from './queue'
 import { emptyData, queueStates, today } from './model'
 import { OWNER_EMAIL } from './members'
 import { useCurrentDay } from './useReports'
+import { validateEvidence } from './evidence'
 import { saveSalesContact as persistSalesContact, validateSalesContact } from './sales'
 import type { SalesContactInput } from './sales'
 import type {
@@ -520,7 +521,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     requireAdmin()
     if (!Number.isSafeInteger(input.amount) || input.amount <= 0 || input.amount > 1000000000)
       throw new Error('จำนวนเงินไม่ถูกต้อง')
-    if (evidence.length > 3) throw new Error('แนบได้ไม่เกิน 3 รูป')
+    validateEvidence(evidence)
     const value = {
       ...input,
       evidenceCount: evidence.length,

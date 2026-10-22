@@ -1,3 +1,81 @@
+.evidence-help {
+  margin: -5px 0 0;
+  color: #7a878d;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.evidence-upload-many {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+.evidence-upload-many .thumb {
+  width: 100%;
+  height: 120px;
+  background: #f2f4f2;
+}
+.evidence-upload-many .thumb img {
+  object-fit: contain;
+}
+.evidence-upload-many .thumb button {
+  width: 44px;
+  height: 44px;
+  border-radius: 8px;
+  right: 0;
+  top: 0;
+  background: #ffffffed;
+}
+.evidence-upload-many .thumb small {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  text-align: center;
+  padding: 3px;
+  background: #ffffffed;
+  color: #52636b;
+  font-size: 10px;
+}
+.evidence-upload-many .upload-btn {
+  min-width: 0;
+  height: 120px;
+  font-size: 11px;
+  text-align: center;
+}
+.evidence-upload-many .upload-btn:focus-within {
+  outline: 2px solid #718b99;
+  outline-offset: 2px;
+}
+.evidence-size-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border-radius: 8px;
+  padding: 12px;
+  background: #f0f4f1;
+}
+.evidence-size-summary strong {
+  font-size: 13px;
+  font-weight: 500;
+  color: #355449;
+}
+.evidence-size-summary span {
+  font-size: 11px;
+  color: #77857e;
+}
+.evidence-errors {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 400px) {
+  .evidence-upload-many {
+    gap: 8px;
+  }
+  .evidence-upload-many .thumb,
+  .evidence-upload-many .upload-btn {
+    height: 100px;
+  }
+}
 /* Sales contact directory */
 .sales-toolbar {
   display: flex;

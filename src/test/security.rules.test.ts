@@ -477,6 +477,46 @@ describe('Admin workflows and constraints', () => {
       }),
     )
   })
+  it('atomically stores ten compressed images that a Guest can read', async () => {
+    const db = owner(),
+      batch = writeBatch(db)
+    batch.set(doc(db, 'entries', 'many-images'), { ...entry, evidenceCount: 10 })
+    const dataUrl = 'data:image/jpeg;base64,' + 'AAAA'.repeat(67494)
+    for (let i = 0; i < 10; i++)
+      batch.set(doc(db, 'entries', 'many-images', 'evidence', `image-${i}`), {
+        name: `receipt-${i}.jpg`,
+        dataUrl,
+      })
+    await assertSucceeds(batch.commit())
+    const guest = env.unauthenticatedContext().firestore()
+    expect((await getDocs(collection(guest, 'entries', 'many-images', 'evidence'))).size).toBe(10)
+    await assertSucceeds(
+      updateDoc(doc(db, 'entries', 'many-images'), { status: 'paid', updatedAt: 2 }),
+    )
+  })
+  it('rejects over ten images and oversized new images without saving a partial entry', async () => {
+    const db = owner()
+    await assertFails(setDoc(doc(db, 'entries', 'too-many'), { ...entry, evidenceCount: 11 }))
+    const batch = writeBatch(db)
+    batch.set(doc(db, 'entries', 'too-large'), { ...entry, evidenceCount: 1 })
+    batch.set(doc(db, 'entries', 'too-large', 'evidence', 'image-1'), {
+      name: 'receipt.jpg',
+      dataUrl: 'data:image/jpeg;base64,' + 'AAAA'.repeat(67495),
+    })
+    await assertFails(batch.commit())
+    expect((await getDoc(doc(db, 'entries', 'too-large'))).exists()).toBe(false)
+    await env.withSecurityRulesDisabled(async (c) => {
+      await setDoc(doc(c.firestore(), 'entries', 'e1', 'evidence', 'legacy-large'), {
+        name: 'old-receipt.jpg',
+        dataUrl: 'data:image/jpeg;base64,' + 'AAAA'.repeat(100000),
+      })
+    })
+    await assertSucceeds(
+      getDoc(
+        doc(env.unauthenticatedContext().firestore(), 'entries', 'e1', 'evidence', 'legacy-large'),
+      ),
+    )
+  })
   it('paid entries cannot change money and void records cannot be reopened', async () => {
     const db = owner()
     await assertSucceeds(updateDoc(doc(db, 'entries', 'e1'), { status: 'paid', updatedAt: 2 }))

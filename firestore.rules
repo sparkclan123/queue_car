@@ -59,7 +59,7 @@ service cloud.firestore {
    allow delete: if false;
   }
   match /entries/{id} {
-   function valid() { let d=request.resource.data; return d.keys().hasOnly(['driverId','driverName','plate','kind','amount','date','recipient','description','status','evidenceCount','createdAt','updatedAt','cancellationId']) && required(d.driverId,100) && required(d.driverName,80) && required(d.plate,30) && d.kind in ['advance','expense','repair','deduction','replacement'] && d.amount is int && d.amount > 0 && d.amount <= 1000000000 && validDate(d.date) && required(d.recipient,100) && required(d.description,500) && d.status in ['pending','paid','void'] && d.evidenceCount is int && d.evidenceCount>=0 && d.evidenceCount<=3 && d.createdAt is int && d.updatedAt is int && (!('cancellationId' in d) || required(d.cancellationId,100)); }
+   function valid() { let d=request.resource.data; return d.keys().hasOnly(['driverId','driverName','plate','kind','amount','date','recipient','description','status','evidenceCount','createdAt','updatedAt','cancellationId']) && required(d.driverId,100) && required(d.driverName,80) && required(d.plate,30) && d.kind in ['advance','expense','repair','deduction','replacement'] && d.amount is int && d.amount > 0 && d.amount <= 1000000000 && validDate(d.date) && required(d.recipient,100) && required(d.description,500) && d.status in ['pending','paid','void'] && d.evidenceCount is int && d.evidenceCount>=0 && d.evidenceCount<=10 && d.createdAt is int && d.updatedAt is int && (!('cancellationId' in d) || required(d.cancellationId,100)); }
    function cancellationLink() {
     let d = request.resource.data;
     let c = getAfter(/databases/$(database)/documents/cancellations/$(d.cancellationId)).data;
@@ -75,7 +75,7 @@ service cloud.firestore {
    allow delete: if false;
    match /evidence/{evidenceId} {
     allow read: if true;
-    allow create: if admin() && !exists(/databases/$(database)/documents/entries/$(id)) && existsAfter(/databases/$(database)/documents/entries/$(id)) && request.resource.data.keys().hasOnly(['name','dataUrl']) && required(request.resource.data.name,120) && str(request.resource.data.dataUrl,600000) && request.resource.data.dataUrl.matches('^data:image/jpeg;base64,[A-Za-z0-9+/=]+$');
+    allow create: if admin() && !exists(/databases/$(database)/documents/entries/$(id)) && existsAfter(/databases/$(database)/documents/entries/$(id)) && request.resource.data.keys().hasOnly(['name','dataUrl']) && required(request.resource.data.name,120) && str(request.resource.data.dataUrl,270000) && request.resource.data.dataUrl.matches('^data:image/jpeg;base64,[A-Za-z0-9+/=]+$');
     allow update,delete: if false;
    }
   }

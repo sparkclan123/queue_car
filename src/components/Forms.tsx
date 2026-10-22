@@ -4,8 +4,9 @@ import { ArrowRight, Camera, Check, LoaderCircle, Plus, X } from 'lucide-react'
 import { useStore } from '../lib/store'
 import { errorMessage } from '../lib/firebase'
 import { kinds, optionalSatang, toSatang, today } from '../lib/model'
-import type { Driver, Entry, Evidence, QueueItem } from '../lib/model'
-import { compressEvidence } from '../lib/evidence'
+import type { Driver, Entry, QueueItem } from '../lib/model'
+import { compressEvidence, fileSize, MAX_EVIDENCE_IMAGES } from '../lib/evidence'
+import type { PreparedEvidence } from '../lib/evidence'
 import { Avatar, Empty, Hint } from './ui'
 import { DateInput } from './DateInput'
 import { ProvincePicker } from './ProvincePicker'
@@ -36,10 +37,12 @@ export function useSubmit(onDone: () => void) {
 export function Footer({
   busy,
   error,
+  disabled = false,
   label = 'บันทึกข้อมูล',
 }: {
   busy: boolean
   error: string
+  disabled?: boolean
   label?: string
 }) {
   return (
@@ -47,7 +50,7 @@ export function Footer({
       <div role="alert" className={error ? 'form-error' : ''}>
         {error}
       </div>
-      <button className="btn primary form-submit" disabled={busy} type="submit">
+      <button className="btn primary form-submit" disabled={busy || disabled} type="submit">
         {busy ? <LoaderCircle className="spin" size={18} /> : <Check size={18} />}{' '}
         {busy ? 'กำลังบันทึก…' : label}
       </button>
@@ -362,28 +365,47 @@ export function CancelQueueForm({ item, onDone }: { item: QueueItem; onDone: () 
 export function EntryForm({ onDone }: { onDone: () => void }) {
   const s = useStore(),
     [kind, setKind] = useState<Entry['kind']>('advance'),
-    [images, setImages] = useState<Evidence[]>([]),
+    [images, setImages] = useState<PreparedEvidence[]>([]),
     [imageBusy, setImageBusy] = useState(false),
+    [imageProgress, setImageProgress] = useState(''),
     [imageError, setImageError] = useState(''),
     submit = useSubmit(onDone)
+  const preparing = useRef(false)
   async function onFiles(files: FileList | null) {
-    if (!files) return
+    if (!files?.length || preparing.current || submit.busy) return
+    const selected = Array.from(files)
     setImageError('')
+    if (images.length + selected.length > MAX_EVIDENCE_IMAGES) {
+      setImageError(
+        `เพิ่มได้อีก ${MAX_EVIDENCE_IMAGES - images.length} รูป (สูงสุด ${MAX_EVIDENCE_IMAGES} รูปต่อรายการ) กรุณาเลือกใหม่`,
+      )
+      return
+    }
+    preparing.current = true
     setImageBusy(true)
     try {
-      if (images.length + files.length > 3) throw new Error('แนบได้สูงสุด 3 รูป')
-      const result: Evidence[] = []
-      for (const file of Array.from(files)) result.push(await compressEvidence(file))
-      setImages([...images, ...result])
-    } catch (e) {
-      setImageError(errorMessage(e))
+      const result: PreparedEvidence[] = [],
+        failures: string[] = []
+      for (const [index, file] of selected.entries()) {
+        setImageProgress(`กำลังย่อรูป ${index + 1}/${selected.length}`)
+        try {
+          result.push(await compressEvidence(file))
+        } catch (e) {
+          failures.push(`${file.name}: ${errorMessage(e)}`)
+        }
+      }
+      setImages((current) => [...current, ...result])
+      if (failures.length)
+        setImageError(`เพิ่มไม่ได้ ${failures.length} รูป\n${failures.join('\n')}`)
     } finally {
+      preparing.current = false
       setImageBusy(false)
+      setImageProgress('')
     }
   }
   function save(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
-    if (imageBusy) return
+    if (preparing.current) return
     const f = new FormData(e.currentTarget)
     void submit.run(async () => {
       const d = s.data.drivers.find((d) => d.id === f.get('driver'))
@@ -400,7 +422,7 @@ export function EntryForm({ onDone }: { onDone: () => void }) {
           description: String(f.get('description')).trim(),
           status: 'pending',
         },
-        images,
+        images.map(({ id, name, dataUrl }) => ({ id, name, dataUrl })),
       )
     })
   }
@@ -476,30 +498,37 @@ export function EntryForm({ onDone }: { onDone: () => void }) {
         />
       </label>
       <label>
-        รูปหลักฐาน <span className="optional">สูงสุด 3 รูป</span>
+        รูปหลักฐาน{' '}
+        <span className="optional">
+          {images.length}/{MAX_EVIDENCE_IMAGES} รูป
+        </span>
       </label>
-      <div className="evidence-upload">
+      <p className="evidence-help">เลือกหลายรูปพร้อมกัน หรือกดเพิ่มรูปอีกครั้งได้</p>
+      <div className="evidence-upload evidence-upload-many" aria-busy={imageBusy}>
         {images.map((image) => (
           <div className="thumb" key={image.id}>
             <img src={image.dataUrl} alt={image.name} />
             <button
               type="button"
-              onClick={() => setImages(images.filter((i) => i.id !== image.id))}
+              disabled={imageBusy || submit.busy}
+              onClick={() => setImages((current) => current.filter((i) => i.id !== image.id))}
               aria-label={`ลบรูป ${image.name}`}
             >
               <X size={14} />
             </button>
+            <small>{fileSize(image.compressedBytes)}</small>
           </div>
         ))}
-        {images.length < 3 && (
+        {images.length < MAX_EVIDENCE_IMAGES && (
           <label className="upload-btn">
             {imageBusy ? <LoaderCircle size={22} className="spin" /> : <Camera size={22} />}
-            <span>{imageBusy ? 'เตรียมรูป…' : 'เพิ่มรูปหลักฐาน'}</span>
+            <span>{imageBusy ? 'กำลังย่อรูป…' : 'เพิ่มรูปหลักฐาน'}</span>
             <input
               type="file"
               accept="image/jpeg,image/png,image/webp"
               multiple
-              disabled={imageBusy}
+              aria-label="เพิ่มรูปหลักฐาน"
+              disabled={imageBusy || submit.busy}
               onChange={(e) => {
                 void onFiles(e.target.files)
                 e.target.value = ''
@@ -508,16 +537,35 @@ export function EntryForm({ onDone }: { onDone: () => void }) {
           </label>
         )}
       </div>
+      {imageBusy && (
+        <p className="evidence-help" role="status">
+          {imageProgress} · กรุณารอให้ครบก่อนบันทึก
+        </p>
+      )}
+      {images.length > 0 && (
+        <div className="evidence-size-summary">
+          <strong>
+            {images.length} รูป · หลังย่อ{' '}
+            {fileSize(images.reduce((sum, image) => sum + image.compressedBytes, 0))}
+          </strong>
+          <span>
+            ต้นฉบับรวม {fileSize(images.reduce((sum, image) => sum + image.originalBytes, 0))} ·
+            ขนาดไฟล์รูปก่อนจัดเก็บ
+          </span>
+        </div>
+      )}
       {imageError && (
-        <div className="form-error" role="alert">
+        <div className="form-error evidence-errors" role="alert">
           {imageError}
         </div>
       )}
       <Hint>
-        รูปจะถูกย่อก่อนบันทึก ผู้ชมเปิดดูหลักฐานได้ เก็บต้นฉบับไว้หากต้องการใช้เอกสารความละเอียดสูง
+        ย่อเป็น JPG อัตโนมัติประมาณไม่เกิน 200 KB ต่อรูป ผู้ชมเปิดดูหลักฐานได้
+        เก็บต้นฉบับไว้หากต้องการใช้เอกสารความละเอียดสูง
       </Hint>
       <Footer
-        busy={submit.busy || imageBusy}
+        busy={submit.busy}
+        disabled={imageBusy}
         error={submit.error}
         label="บันทึกรายการรอดำเนินการ"
       />

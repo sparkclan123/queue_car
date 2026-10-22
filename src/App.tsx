@@ -39,6 +39,7 @@ import { MembersPanel } from './components/Members'
 import { TodayActivity } from './components/TodayActivity'
 import { SalesPanel } from './components/Sales'
 import { telephoneHref } from './lib/phone'
+import { MAX_EVIDENCE_IMAGES } from './lib/evidence'
 import type { ReportDriver, ReportProps } from './components/Reports'
 import { errorMessage, login, logout } from './lib/firebase'
 import {
@@ -1240,8 +1241,8 @@ export default function App() {
               <p>
                 <strong>การเงินและหลักฐาน</strong>
                 <br />
-                เลือกประเภทและคนรถ ระบุจำนวนเงิน ผู้รับเงิน และเหตุผล แนบรูปได้สูงสุด 3 รูป
-                จากนั้นกดยืนยันเมื่อจ่ายหรือหักเงินจริงแล้ว
+                เลือกประเภทและคนรถ ระบุจำนวนเงิน ผู้รับเงิน และเหตุผล แนบรูปได้สูงสุด{' '}
+                {MAX_EVIDENCE_IMAGES} รูป จากนั้นกดยืนยันเมื่อจ่ายหรือหักเงินจริงแล้ว
               </p>
               <Hint>
                 ระบบใช้ Firebase Spark มีโควตาฟรีจำกัด รูปหลักฐานถูกบีบอัด
