@@ -14,6 +14,7 @@ import {
 import type { Cancellation, Driver, Entry, Job, QueueItem } from '../lib/model'
 import { forDriver, reportDrivers, totals, validatePeriod } from '../lib/reports'
 import type { Period, ReportData } from '../lib/reports'
+import { cancellationsCsvRows, financeCsvRows, jobsCsvRows } from '../lib/reportCsv'
 import { Badge, Route } from './ui'
 import { PhoneLink } from './PhoneLink'
 import { DateInput } from './DateInput'
@@ -21,6 +22,8 @@ import { ReportCharts, ReportView } from './ReportCharts'
 import { telephoneHref } from '../lib/phone'
 
 export type ReportDriver = { id: string; name: string; plate: string }
+type DriverReportTab = 'jobs' | 'money' | 'cancellations'
+export type DriverReportFocus = Entry['kind'] | 'paidDeduction' | 'outgoing' | 'trips' | 'money'
 export type ReportProps = {
   data: ReportData
   loading: boolean
@@ -29,7 +32,7 @@ export type ReportProps = {
   currentDay: string
   onPeriod: (start: string, end: string | null) => void
   onRefresh: () => void
-  onDriver: (driver: ReportDriver) => void
+  onDriver: (driver: ReportDriver, focus?: DriverReportFocus) => void
   onJob: (job: Job) => void
   onEntry: (entry: Entry) => void
 }
@@ -173,10 +176,12 @@ export function EntryRows({
             <span className="report-row-main">
               <strong>{e.description}</strong>
               <small>
+                {e.kind === 'deduction' && 'หักจาก '}
                 {e.driverName} · {kinds[e.kind]} · {dateLabel(e.date)}
               </small>
               <small>
-                ให้ {e.recipient}
+                {e.kind === 'deduction' ? 'หักให้ ' : 'ผู้รับเงิน '}
+                {e.recipient}
                 {e.evidenceCount ? ` · หลักฐาน ${e.evidenceCount} รูป` : ''}
               </small>
             </span>
@@ -243,6 +248,7 @@ export function CancellationRows({
                     label: `หักจาก ${c.driverName}`,
                     amount: c.deductionAmount,
                     id: c.deductionEntryId,
+                    deduction: true,
                   },
                   ...(c.replacementDriverId
                     ? [
@@ -250,6 +256,7 @@ export function CancellationRows({
                           label: `ให้ ${c.replacementDriverName}`,
                           amount: c.compensationAmount,
                           id: c.compensationEntryId,
+                          deduction: false,
                         },
                       ]
                     : []),
@@ -259,6 +266,7 @@ export function CancellationRows({
                     <div key={row.label}>
                       <span>{row.label}</span>
                       <strong>฿{money(row.amount)}</strong>
+                      {row.deduction && entry && <small>หักให้ {entry.recipient}</small>}
                       {entry ? (
                         <button className="text-btn" onClick={() => onEntry(entry)}>
                           {entryStates[entry.status]} <ChevronRight size={14} />
@@ -312,11 +320,19 @@ function FinancialBreakdown({ data }: { data: ReportData }) {
   )
 }
 
+const csvReports = {
+  drivers: 'สรุปคนรถ',
+  jobs: 'งานวิ่ง',
+  finance: 'การเงิน',
+  cancellations: 'ยกเลิกคิว',
+}
+
 export function ReportPanel(props: ReportProps) {
   const { data, period, onDriver, onJob, onEntry } = props
   const [tab, setTab] = useState('drivers'),
     [search, setSearch] = useState('')
-  const [view, setView] = useState<'list' | 'chart'>('list')
+  const [view, setView] = useState<'list' | 'chart'>('chart')
+  const [csvReport, setCsvReport] = useState<keyof typeof csvReports>('drivers')
   const t = useMemo(() => totals(data), [data]),
     people = useMemo(() => reportDrivers(data), [data])
   const filteredPeople = people.filter((d) => `${d.name} ${d.plate}`.includes(search))
@@ -327,6 +343,12 @@ export function ReportPanel(props: ReportProps) {
     ['cancellations', 'ยกเลิกคิว', data.cancellations.length],
   ]
   function download() {
+    const name = `${csvReports[csvReport]}-${period.start}-${period.end}.csv`
+    if (csvReport === 'jobs') return exportCsv(name, jobsCsvRows(data.jobs))
+    if (csvReport === 'finance') return exportCsv(name, financeCsvRows(data.entries))
+    if (csvReport === 'cancellations')
+      return exportCsv(name, cancellationsCsvRows(data.cancellations, data.entries))
+
     const header = [
       'คนรถ',
       'ทะเบียน',
@@ -336,8 +358,15 @@ export function ReportPanel(props: ReportProps) {
       'ยอดจ่ายที่บันทึก (บาท)',
       'ยอดหักที่บันทึก (บาท)',
       'จ่ายสุทธิแล้ว (บาท)',
+      'ยอดเบิกเงิน (บาท)',
+      'จำนวนครั้งที่เบิก',
+      'ค่าใช้จ่าย (บาท)',
+      'ค่าซ่อมรถ (บาท)',
+      'ค่าขึ้นงานแทน (บาท)',
+      'ยอดหักแล้ว (บาท)',
+      'ยอดรอหัก (บาท)',
     ]
-    exportCsv(`สรุปคนรถ-${period.start}-${period.end}.csv`, [
+    exportCsv(name, [
       header,
       ...people.map((d) => [
         d.name,
@@ -348,6 +377,13 @@ export function ReportPanel(props: ReportProps) {
         d.totals.outgoing / 100,
         d.totals.deductions / 100,
         d.totals.netPaid / 100,
+        d.totals.byKind.advance / 100,
+        d.totals.advanceCount,
+        d.totals.byKind.expense / 100,
+        d.totals.byKind.repair / 100,
+        d.totals.byKind.replacement / 100,
+        d.totals.paidDeduction / 100,
+        d.totals.pendingDeduction / 100,
       ]),
     ])
   }
@@ -414,9 +450,27 @@ export function ReportPanel(props: ReportProps) {
             ยอดบันทึกรวมรายการรอดำเนินการ · รอจ่าย ฿{money(t.pendingOut)} · รอหัก ฿
             {money(t.pendingDeduction)}
           </div>
-          <ReportView value={view} onChange={setView} />
+          <div className="report-actions">
+            <ReportView value={view} onChange={setView} />
+            <div className="report-export">
+              <select
+                aria-label="ข้อมูลที่จะส่งออก"
+                value={csvReport}
+                onChange={(e) => setCsvReport(e.target.value as keyof typeof csvReports)}
+              >
+                {Object.entries(csvReports).map(([id, label]) => (
+                  <option key={id} value={id}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+              <button className="btn secondary small" onClick={download}>
+                <ArrowDownToLine size={16} /> ส่งออก CSV
+              </button>
+            </div>
+          </div>
           {view === 'chart' ? (
-            <ReportCharts data={data} onDriver={onDriver} />
+            <ReportCharts data={data} onDriver={onDriver} onJob={onJob} />
           ) : (
             <>
               <div className="report-tabs" role="tablist" aria-label="หมวดรายงาน">
@@ -444,9 +498,6 @@ export function ReportPanel(props: ReportProps) {
                         onChange={(e) => setSearch(e.target.value)}
                       />
                     </label>
-                    <button className="text-btn" onClick={download}>
-                      <ArrowDownToLine size={16} /> CSV
-                    </button>
                   </div>
                   {filteredPeople.length ? (
                     filteredPeople.map((d) => (
@@ -500,29 +551,66 @@ export function DriverReport({
   driver,
   contact,
   queued,
+  initialFocus,
   ...props
 }: ReportProps & {
   driver: ReportDriver
   contact?: Driver
   queued?: QueueItem
+  initialFocus?: DriverReportFocus
 }) {
   const data = forDriver(props.data, driver.id),
     t = totals(data)
-  const [tab, setTab] = useState('jobs')
+  const [tab, setTab] = useState<DriverReportTab>(
+    !initialFocus || initialFocus === 'trips' ? 'jobs' : 'money',
+  )
+  const [focus, setFocus] = useState(initialFocus)
   const [view, setView] = useState<'list' | 'chart'>('list')
+  const tripFilter = focus === 'trips'
+  const moneyFilter =
+    focus !== undefined && focus !== 'money' && focus !== 'trips' ? focus : undefined
+  const focusedEntries = moneyFilter
+    ? data.entries.filter((entry) => {
+        if (entry.status === 'void') return false
+        if (moneyFilter === 'paidDeduction')
+          return entry.kind === 'deduction' && entry.status === 'paid'
+        if (moneyFilter === 'outgoing') return entry.kind !== 'deduction'
+        return entry.kind === moneyFilter
+      })
+    : data.entries
+  const focusedJobs = tripFilter ? data.jobs.filter((job) => job.status !== 'cancelled') : data.jobs
+  const filterLabel =
+    tab === 'jobs' && tripFilter
+      ? 'เที่ยวที่นับในกราฟ'
+      : tab !== 'money' || !moneyFilter
+        ? undefined
+        : moneyFilter === 'paidDeduction'
+          ? 'ยอดหักแล้ว'
+          : moneyFilter === 'outgoing'
+            ? 'เบิกและค่าใช้จ่ายรวม'
+            : kinds[moneyFilter]
   function download() {
     exportCsv(`รายงาน-${driver.plate}-${props.period.start}-${props.period.end}.csv`, [
       ['คนรถ', driver.name, 'ทะเบียน', driver.plate],
       ['ตั้งแต่', props.period.start, 'ถึง', props.period.end],
       ['เที่ยววิ่ง (ไม่รวมยกเลิก)', t.trips, 'จบงาน', t.completed],
-      ['วันที่', 'ประเภท', 'รายละเอียด', 'สถานะ', 'จำนวนเงิน (บาท)', 'ผู้รับเงิน'],
+      [
+        'วันที่',
+        'ประเภท',
+        'รายละเอียด',
+        'สถานะ',
+        'จำนวนเงิน (บาท)',
+        'ผู้รับเงิน / ผู้รับยอดหัก',
+        'เส้นทาง',
+      ],
       ...data.jobs.map((j) => [
         j.date,
         'งานวิ่ง',
-        j.provinces.join(' → '),
+        j.note,
         jobStates[j.status],
         '',
         '',
+        j.provinces.join(' → '),
       ]),
       ...data.entries.map((e) => [
         e.date,
@@ -531,6 +619,7 @@ export function DriverReport({
         entryStates[e.status],
         e.amount / 100,
         e.recipient,
+        '',
       ]),
     ])
   }
@@ -578,16 +667,16 @@ export function DriverReport({
           )}
           <ReportView value={view} onChange={setView} />
           {view === 'chart' ? (
-            <ReportCharts data={data} individual />
+            <ReportCharts data={data} onJob={props.onJob} individual />
           ) : (
             <>
               <FinancialBreakdown data={data} />
               <div className="report-tabs" role="tablist" aria-label="รายละเอียดคนรถ">
                 <button role="tab" aria-selected={tab === 'jobs'} onClick={() => setTab('jobs')}>
-                  เที่ยววิ่ง <span>{data.jobs.length}</span>
+                  เที่ยววิ่ง <span>{focusedJobs.length}</span>
                 </button>
                 <button role="tab" aria-selected={tab === 'money'} onClick={() => setTab('money')}>
-                  การเงิน <span>{data.entries.length}</span>
+                  การเงิน <span>{focusedEntries.length}</span>
                 </button>
                 <button
                   role="tab"
@@ -597,8 +686,16 @@ export function DriverReport({
                   ยกเลิก / ขึ้นแทน <span>{data.cancellations.length}</span>
                 </button>
               </div>
-              {tab === 'jobs' && <JobRows jobs={data.jobs} onJob={props.onJob} />}
-              {tab === 'money' && <EntryRows entries={data.entries} onEntry={props.onEntry} />}
+              {filterLabel && (
+                <div className="report-focus">
+                  <span>{filterLabel}</span>
+                  <button className="text-btn" onClick={() => setFocus(undefined)}>
+                    แสดงทุกรายการ
+                  </button>
+                </div>
+              )}
+              {tab === 'jobs' && <JobRows jobs={focusedJobs} onJob={props.onJob} />}
+              {tab === 'money' && <EntryRows entries={focusedEntries} onEntry={props.onEntry} />}
               {tab === 'cancellations' && (
                 <CancellationRows
                   items={data.cancellations}

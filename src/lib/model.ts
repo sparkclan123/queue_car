@@ -173,7 +173,8 @@ export function validDate(value: string) {
 }
 export function csvCell(value: unknown) {
   const v = String(value ?? '')
-  return '"' + (/^[=+\-@\t\r]/.test(v) ? "'" + v : v).replaceAll('"', '""') + '"'
+  const formula = typeof value === 'string' && /^(?:\s*[=+\-@]|[\t\r\n])/.test(v)
+  return '"' + (formula ? "'" + v : v).replaceAll('"', '""') + '"'
 }
 export function exportCsv(name: string, rows: unknown[][]) {
   const blob = new Blob(['\ufeff' + rows.map((row) => row.map(csvCell).join(',')).join('\r\n')], {

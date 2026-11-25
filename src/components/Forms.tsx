@@ -1,30 +1,29 @@
-import { useRef, useState } from 'react'
+import { useId, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { ArrowRight, Camera, Check, LoaderCircle, Plus, X } from 'lucide-react'
 import { useStore } from '../lib/store'
 import { errorMessage } from '../lib/firebase'
-import { kinds, optionalSatang, toSatang, today } from '../lib/model'
+import { dateLabel, kinds, optionalSatang, toSatang, today } from '../lib/model'
 import type { Driver, Entry, QueueItem } from '../lib/model'
 import { compressEvidence, fileSize, MAX_EVIDENCE_IMAGES } from '../lib/evidence'
 import type { PreparedEvidence } from '../lib/evidence'
 import { Avatar, Empty, Hint } from './ui'
 import { DateInput } from './DateInput'
 import { ProvincePicker } from './ProvincePicker'
-export function useSubmit(onDone: () => void) {
+export function useSubmit<T>(onDone: (value: T) => void) {
   const [busy, setBusy] = useState(false),
     [error, setError] = useState('')
   const locked = useRef(false)
   return {
     busy,
     error,
-    run: async (fn: () => Promise<void>) => {
+    run: async (fn: () => Promise<T>) => {
       if (locked.current) return
       locked.current = true
       setBusy(true)
       setError('')
       try {
-        await fn()
-        onDone()
+        onDone(await fn())
       } catch (e) {
         setError(errorMessage(e))
       } finally {
@@ -144,22 +143,28 @@ export function QueueForm({
   onAddDriver: () => void
 }) {
   const s = useStore(),
-    [selected, setSelected] = useState(''),
+    [selected, setSelected] = useState<{ id: string; jobId: string }>(),
     [search, setSearch] = useState(''),
     submit = useSubmit(onDone)
+  const running = new Map(s.runningJobs.map((job) => [job.id, job]))
+  const queued = new Set(s.data.queue.map((item) => item.id))
   const available = s.data.drivers.filter(
     (d) =>
       d.active &&
-      !d.activeJobId &&
-      !s.data.queue.some((q) => q.id === d.id) &&
-      `${d.name} ${d.plate}`.includes(search),
+      (!d.activeJobId || running.get(d.activeJobId)?.driverId === d.id) &&
+      !queued.has(d.id) &&
+      `${d.name} ${d.plate}`.includes(search.trim()),
   )
+  const current = available.find((d) => d.id === selected?.id)
+  const selectionValid = !!current && (current.activeJobId || '') === selected?.jobId
+  const job = selectionValid && selected ? running.get(selected.jobId) : undefined
   return (
     <form
       className="form"
       onSubmit={(e) => {
         e.preventDefault()
-        if (selected) void submit.run(() => s.joinQueue(selected))
+        if (selected && selectionValid)
+          void submit.run(() => s.joinQueue(selected.id, selected.jobId))
       }}
     >
       <input
@@ -170,30 +175,36 @@ export function QueueForm({
         aria-label="ค้นหาคนรถที่พร้อมลงคิว"
       />
       <div className="driver-options">
-        {available.map((d, i) => (
-          <label className={`driver-option ${selected === d.id ? 'selected' : ''}`} key={d.id}>
-            <input
-              type="radio"
-              name="driver"
-              required
-              value={d.id}
-              checked={selected === d.id}
-              onChange={() => setSelected(d.id)}
-            />
-            <Avatar name={d.name} index={i} />
-            <span>
-              <strong>{d.name}</strong>
-              <small>
-                {d.plate} · {d.truckType}
-              </small>
-            </span>
-            {selected === d.id && <Check size={18} />}
-          </label>
-        ))}
+        {available.map((d, i) => {
+          const checked = selected?.id === d.id && selectionValid
+          return (
+            <label className={`driver-option ${checked ? 'selected' : ''}`} key={d.id}>
+              <input
+                type="radio"
+                name="driver"
+                required
+                value={d.id}
+                checked={checked}
+                onChange={() => setSelected({ id: d.id, jobId: d.activeJobId || '' })}
+              />
+              <Avatar name={d.name} index={i} />
+              <span>
+                <strong>{d.name}</strong>
+                <small>
+                  {d.plate} · {d.truckType}
+                </small>
+                {d.activeJobId && (
+                  <small className="queue-running-label">กำลังวิ่ง · จบงานพร้อมลงคิวได้</small>
+                )}
+              </span>
+              {checked && <Check size={18} />}
+            </label>
+          )
+        })}
         {!available.length && (
           <Empty
             title="ไม่มีคนรถที่พร้อมลงคิว"
-            detail="คนรถอาจอยู่ในคิวหรือมีงานที่ยังไม่จบ"
+            detail="ลองเปลี่ยนคำค้น รถที่รอออกงานจะลงคิวได้เมื่อจบงานหรือยกเลิกงานแล้ว"
             action={
               <button type="button" className="btn secondary" onClick={onAddDriver}>
                 <Plus size={16} /> เพิ่มคนรถ
@@ -202,8 +213,21 @@ export function QueueForm({
           />
         )}
       </div>
-      <Hint>คิวเรียงตามเวลาที่ลง คนที่ลงก่อนจะอยู่ด้านบน</Hint>
-      {available.length > 0 && <Footer {...submit} label="ยืนยันลงคิว" />}
+      {job ? (
+        <Hint>
+          จบเที่ยววันที่ {dateLabel(job.date, true)} · {job.provinces.join(' → ')}{' '}
+          และนำรถไปต่อท้ายคิว
+        </Hint>
+      ) : (
+        <Hint>คิวเรียงตามเวลาที่ลง คนที่ลงก่อนจะอยู่ด้านบน</Hint>
+      )}
+      {available.length > 0 && (
+        <Footer
+          {...submit}
+          disabled={!selectionValid}
+          label={job ? 'ยืนยันจบงานและลงคิว' : 'ยืนยันลงคิว'}
+        />
+      )}
     </form>
   )
 }
@@ -253,6 +277,44 @@ export function JobForm({ item, onDone }: { item: QueueItem; onDone: () => void 
     </form>
   )
 }
+function DeductionRecipient({
+  name,
+  required = false,
+  defaultValue,
+  value,
+  onChange,
+}: {
+  name: string
+  required?: boolean
+  defaultValue?: string
+  value?: string
+  onChange?: (value: string) => void
+}) {
+  const id = useId()
+  const { data } = useStore()
+  const names = [...new Set(['กองกลาง', ...data.drivers.map((driver) => driver.name)])]
+  return (
+    <label>
+      หักเงินให้ใคร {required && <b>*</b>}
+      <input
+        name={name}
+        list={id}
+        defaultValue={defaultValue}
+        value={value}
+        onChange={onChange && ((event) => onChange(event.target.value))}
+        maxLength={100}
+        required={required}
+        placeholder="พิมพ์ชื่อผู้รับ หรือเลือกจากรายชื่อ"
+      />
+      <datalist id={id}>
+        {names.map((value) => (
+          <option key={value} value={value} />
+        ))}
+      </datalist>
+    </label>
+  )
+}
+
 export function CancelQueueForm({ item, onDone }: { item: QueueItem; onDone: () => void }) {
   const s = useStore(),
     [replacement, setReplacement] = useState(''),
@@ -269,7 +331,7 @@ export function CancelQueueForm({ item, onDone }: { item: QueueItem; onDone: () 
             reason: String(f.get('reason')),
             replacementDriverId: replacement,
             jobDate: String(f.get('jobDate') || today()),
-            provinces: stops,
+            provinces: replacement ? stops : [],
             deductionAmount: optionalSatang(String(f.get('deduction') || '0')),
             compensationAmount: replacement
               ? optionalSatang(String(f.get('compensation') || '0'))
@@ -293,7 +355,20 @@ export function CancelQueueForm({ item, onDone }: { item: QueueItem; onDone: () 
         />
       </label>
       <div className="form-section-title">
-        คนขึ้นงานแทน <span>ถ้ามี</span>
+        หักเงิน <span>ไม่คิดเงินใส่ 0</span>
+      </div>
+      <label>
+        หักจาก {item.driverName} (บาท)
+        <input
+          name="deduction"
+          inputMode="decimal"
+          defaultValue="0"
+          pattern="[0-9]+(\.[0-9]{1,2})?"
+        />
+      </label>
+      <DeductionRecipient name="deductionRecipient" defaultValue="กองกลาง" />
+      <div className="form-section-title">
+        จ่ายงานให้คนขึ้นแทน <span>ถ้ามีเที่ยวให้วิ่ง</span>
       </div>
       <label>
         ผู้ขึ้นงานแทน
@@ -324,22 +399,6 @@ export function CancelQueueForm({ item, onDone }: { item: QueueItem; onDone: () 
           />
         </>
       )}
-      <div className="form-section-title">
-        ยอดเงินจากการยกเลิก <span>ไม่คิดเงินใส่ 0</span>
-      </div>
-      <label>
-        หักจาก {item.driverName} (บาท)
-        <input
-          name="deduction"
-          inputMode="decimal"
-          defaultValue="0"
-          pattern="[0-9]+(\.[0-9]{1,2})?"
-        />
-      </label>
-      <label>
-        ยอดหักนี้ให้ใคร / เข้าบัญชีใด
-        <input name="deductionRecipient" defaultValue="กองกลาง" maxLength={100} />
-      </label>
       {replacement && (
         <label>
           ให้ผู้ขึ้นงานแทน (บาท)
@@ -362,9 +421,16 @@ export function CancelQueueForm({ item, onDone }: { item: QueueItem; onDone: () 
     </form>
   )
 }
-export function EntryForm({ onDone }: { onDone: () => void }) {
+export function EntryForm({
+  initialKind = 'advance',
+  onDone,
+}: {
+  initialKind?: Entry['kind']
+  onDone: (entry: { date: string; kind: Entry['kind'] }) => void
+}) {
   const s = useStore(),
-    [kind, setKind] = useState<Entry['kind']>('advance'),
+    [kind, setKind] = useState<Entry['kind']>(initialKind),
+    [recipient, setRecipient] = useState(''),
     [images, setImages] = useState<PreparedEvidence[]>([]),
     [imageBusy, setImageBusy] = useState(false),
     [imageProgress, setImageProgress] = useState(''),
@@ -410,6 +476,10 @@ export function EntryForm({ onDone }: { onDone: () => void }) {
     void submit.run(async () => {
       const d = s.data.drivers.find((d) => d.id === f.get('driver'))
       if (!d) throw new Error('กรุณาเลือกคนรถ')
+      const date = String(f.get('date'))
+      const recipient = String(f.get('recipient')).trim()
+      const description = String(f.get('description')).trim()
+      if (!recipient || !description) throw new Error('กรุณาระบุผู้รับเงินและรายละเอียด')
       await s.saveEntry(
         {
           driverId: d.id,
@@ -417,13 +487,14 @@ export function EntryForm({ onDone }: { onDone: () => void }) {
           plate: d.plate,
           kind,
           amount: toSatang(String(f.get('amount'))),
-          date: String(f.get('date')),
-          recipient: String(f.get('recipient')).trim(),
-          description: String(f.get('description')).trim(),
+          date,
+          recipient,
+          description,
           status: 'pending',
         },
         images.map(({ id, name, dataUrl }) => ({ id, name, dataUrl })),
       )
+      return { date, kind }
     })
   }
   return (
@@ -443,7 +514,7 @@ export function EntryForm({ onDone }: { onDone: () => void }) {
           ))}
       </div>
       <label>
-        คนรถ / ทะเบียน <b>*</b>
+        {kind === 'deduction' ? 'หักเงินจากคนรถ' : 'คนรถ / ทะเบียน'} <b>*</b>
         <select name="driver" required defaultValue="">
           <option value="" disabled>
             เลือกคนรถ
@@ -474,17 +545,21 @@ export function EntryForm({ onDone }: { onDone: () => void }) {
           <DateInput name="date" required defaultValue={today()} />
         </label>
       </div>
-      <label>
-        {kind === 'deduction' ? 'หักเงินให้ใคร / ผู้รับ' : 'ผู้รับเงิน / ร้านค้า'} <b>*</b>
-        <input
-          name="recipient"
-          required
-          maxLength={100}
-          placeholder={
-            kind === 'deduction' ? 'เช่น กองกลาง / ชื่อผู้รับ' : 'เช่น ชื่อคนรถ หรือชื่ออู่ซ่อมรถ'
-          }
-        />
-      </label>
+      {kind === 'deduction' ? (
+        <DeductionRecipient name="recipient" value={recipient} onChange={setRecipient} required />
+      ) : (
+        <label>
+          ผู้รับเงิน / ร้านค้า <b>*</b>
+          <input
+            name="recipient"
+            value={recipient}
+            onChange={(event) => setRecipient(event.target.value)}
+            required
+            maxLength={100}
+            placeholder="เช่น ชื่อคนรถ หรือชื่ออู่ซ่อมรถ"
+          />
+        </label>
+      )}
       <label>
         {kind === 'repair' ? 'รายละเอียดการซ่อม' : 'รายละเอียด / เหตุผล'} <b>*</b>
         <textarea

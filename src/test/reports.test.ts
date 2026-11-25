@@ -5,6 +5,7 @@ import type { CancellationInput, Entry, Job, QueueItem } from '../lib/model'
 import {
   filterReport,
   forDriver,
+  reportDestinations,
   reportDays,
   reportDrivers,
   totals,
@@ -67,13 +68,20 @@ describe('cancellation and replacement accounting', () => {
     const p = cancellationPlan(
       queue,
       undefined,
-      { ...input, replacementDriverId: '', compensationAmount: 0 },
+      {
+        ...input,
+        replacementDriverId: '',
+        compensationAmount: 0,
+        provinces: [],
+        deductionRecipient: 'คนรับเงิน',
+      },
       'c2',
       'owner',
       1,
       '2026-10-20',
     )
-    expect(p.entries).toHaveLength(1)
+    expect(p.entries).toMatchObject([{ kind: 'deduction', recipient: 'คนรับเงิน' }])
+    expect(p.job).toBeUndefined()
     expect(plan({ jobDate: '2026-10-21' }).job?.status).toBe('scheduled')
   })
   it.each([-1, 1.25, 1000000001, NaN])('rejects invalid monetary units %s', (amount) => {
@@ -125,6 +133,20 @@ describe('date range reports', () => {
     createdAt: 1,
     updatedAt: 1,
   } as Entry
+  it('groups jobs by distinct destination, keeps driver identities and excludes cancellations', () => {
+    const next = { ...baseJob, id: 'j2', driverId: 'd2', driverName: 'คนแทน', provinces: ['ระยอง'] }
+    const destinations = reportDestinations([
+      { ...baseJob, provinces: ['ชลบุรี', 'ระยอง', 'ระยอง'] },
+      next,
+      { ...baseJob, id: 'j3', status: 'cancelled', provinces: ['กรุงเทพมหานคร'] },
+    ])
+    expect(
+      destinations.map(({ province, jobs }) => [province, jobs.map((job) => job.driverId)]),
+    ).toEqual([
+      ['ระยอง', ['d1', 'd2']],
+      ['ชลบุรี', ['d1']],
+    ])
+  })
   it('uses the latest recorded driver identity while retaining historical details', () => {
     const rows = reportDrivers({
       jobs: [{ ...baseJob, date: '2026-10-20', plate: '70-9999' }, baseJob],

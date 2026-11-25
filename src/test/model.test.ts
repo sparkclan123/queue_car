@@ -25,5 +25,7 @@ describe('Thai dates and exports', () => {
     expect(csvCell('a,"b"')).toBe('"a,""b"""')
     expect(csvCell('=HYPERLINK("x")')).toBe('"\'=HYPERLINK(""x"")"')
     expect(csvCell('@SUM(A1)')).toBe('"\'@SUM(A1)"')
+    expect(csvCell('  =A1')).toBe('"\'  =A1"')
+    expect(csvCell(-12.5)).toBe('"-12.5"')
   })
 })

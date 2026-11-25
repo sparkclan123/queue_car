@@ -103,6 +103,22 @@ export function reportDays(data: ReportData) {
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([date, rows]) => ({ date, totals: totals(rows) }))
 }
+export function reportDestinations(jobs: Job[]) {
+  const destinations = new Map<string, Job[]>()
+  const activeJobs = jobs
+    .filter((job) => job.status !== 'cancelled')
+    .sort((a, b) => b.date.localeCompare(a.date) || b.createdAt - a.createdAt)
+  for (const job of activeJobs) {
+    for (const province of new Set(job.provinces)) {
+      let trips = destinations.get(province)
+      if (!trips) destinations.set(province, (trips = []))
+      trips.push(job)
+    }
+  }
+  return [...destinations]
+    .map(([province, jobs]) => ({ province, jobs }))
+    .sort((a, b) => b.jobs.length - a.jobs.length || a.province.localeCompare(b.province, 'th'))
+}
 export function forDriver(data: ReportData, driverId: string): ReportData {
   return {
     jobs: data.jobs.filter((j) => j.driverId === driverId),

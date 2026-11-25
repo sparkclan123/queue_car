@@ -8,7 +8,7 @@ import type { RulesTestEnvironment } from '@firebase/rules-unit-testing'
 import { readFileSync } from 'node:fs'
 import { cancellationPlan, cancelQueueTransaction } from '../lib/cancellations'
 import { today } from '../lib/model'
-import { changeQueueStatus } from '../lib/queue'
+import { changeQueueStatus, joinQueueTransaction } from '../lib/queue'
 import type { CancellationInput, Job, QueueItem } from '../lib/model'
 import { readReportRange } from '../lib/reports'
 import { changeMemberRole, OWNER_EMAIL } from '../lib/members'
@@ -159,6 +159,28 @@ describe('cancellation, replacement and range reporting', () => {
     expect(p.entries).toHaveLength(0)
     expect((await getDoc(doc(db, 'cancellations', p.record.id))).exists()).toBe(true)
     expect((await getDocs(collection(db, 'entries'))).size).toBe(1)
+  })
+  it('saves a cancellation deduction for a named recipient without dispatching a trip', async () => {
+    const db = owner() as unknown as Firestore
+    const plan = await cancelQueueTransaction(
+      db,
+      'd1',
+      {
+        ...input,
+        replacementDriverId: '',
+        jobDate: '',
+        provinces: [],
+        compensationAmount: 0,
+        deductionRecipient: 'คนรับยอดหัก',
+      },
+      ownerEmail,
+    )
+    expect((await getDoc(doc(db, 'entries', plan.record.deductionEntryId))).data()).toMatchObject({
+      kind: 'deduction',
+      recipient: 'คนรับยอดหัก',
+      status: 'pending',
+    })
+    expect((await getDocs(collection(db, 'jobs'))).size).toBe(1)
   })
   it('prevents duplicate payments when two clients cancel the same queue concurrently', async () => {
     await replacementSeed()
@@ -451,6 +473,50 @@ describe('Admin workflows and constraints', () => {
   })
   it('does not allow standalone job creation without locking driver', async () => {
     await assertFails(setDoc(doc(owner(), 'jobs', 'j1'), job))
+  })
+  async function dispatchForRequeue(status: 'running' | 'scheduled') {
+    const db = owner()
+    const batch = writeBatch(db)
+    batch.set(doc(db, 'jobs', 'j1'), { ...job, status })
+    batch.delete(doc(db, 'queue', 'd1'))
+    batch.update(doc(db, 'drivers', 'd1'), { activeJobId: 'j1', updatedAt: 2 })
+    await assertSucceeds(batch.commit())
+    return db
+  }
+  it('completes the confirmed running job and rejoins the tail exactly once', async () => {
+    const db = await dispatchForRequeue('running')
+    const results = await Promise.allSettled(
+      [1, 2].map(() => joinQueueTransaction(db as unknown as Firestore, 'd1', 'j1', ownerEmail)),
+    )
+    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1)
+    expect((await getDoc(doc(db, 'jobs', 'j1'))).data()).toMatchObject({
+      status: 'completed',
+      date: job.date,
+      provinces: job.provinces,
+    })
+    expect((await getDoc(doc(db, 'drivers', 'd1'))).data()?.activeJobId).toBe('')
+    const queued = (await getDoc(doc(db, 'queue', 'd1'))).data()
+    expect(queued).toMatchObject({ driverId: 'd1', status: 'waiting' })
+    expect(queued?.joinedAt).toBeGreaterThan(q.joinedAt)
+    expect((await getDoc(doc(db, 'settings', 'queue'))).data()?.tailAt).toBe(queued?.joinedAt)
+  })
+  it('rejects stale confirmation and preserves a scheduled trip', async () => {
+    const db = await dispatchForRequeue('scheduled')
+    for (const expected of ['', 'older-job', 'j1'])
+      await expect(
+        joinQueueTransaction(db as unknown as Firestore, 'd1', expected, ownerEmail),
+      ).rejects.toThrow()
+    expect((await getDoc(doc(db, 'queue', 'd1'))).exists()).toBe(false)
+    expect((await getDoc(doc(db, 'jobs', 'j1'))).data()?.status).toBe('scheduled')
+  })
+  it('rejects rejoining in a batch that clears the running lock without completing the trip', async () => {
+    const db = await dispatchForRequeue('running')
+    const batch = writeBatch(db)
+    batch.update(doc(db, 'drivers', 'd1'), { activeJobId: '' })
+    batch.set(doc(db, 'queue', 'd1'), { ...q, joinedAt: 3, status: 'waiting' })
+    batch.update(doc(db, 'settings', 'queue'), { tailAt: 3 })
+    await assertFails(batch.commit())
+    expect((await getDoc(doc(db, 'drivers', 'd1'))).data()?.activeJobId).toBe('j1')
   })
   it('does not allow deactivating an in-queue driver', async () => {
     await assertFails(updateDoc(doc(owner(), 'drivers', 'd1'), { active: false }))

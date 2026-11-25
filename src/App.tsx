@@ -31,6 +31,7 @@ import {
 import type { LucideIcon } from 'lucide-react'
 import { useStore } from './lib/store'
 import { useReports } from './lib/useReports'
+import { financeCsvRows, jobsCsvRows } from './lib/reportCsv'
 import { DriverReport, ReportPanel } from './components/Reports'
 import { FinanceSummary } from './components/FinanceSummary'
 import { PhoneLink } from './components/PhoneLink'
@@ -40,7 +41,7 @@ import { TodayActivity } from './components/TodayActivity'
 import { SalesPanel } from './components/Sales'
 import { telephoneHref } from './lib/phone'
 import { MAX_EVIDENCE_IMAGES } from './lib/evidence'
-import type { ReportDriver, ReportProps } from './components/Reports'
+import type { DriverReportFocus, ReportDriver, ReportProps } from './components/Reports'
 import { errorMessage, login, logout } from './lib/firebase'
 import {
   dateLabel,
@@ -68,11 +69,12 @@ import {
 type Page =
   'dashboard' | 'queue' | 'jobs' | 'finance' | 'drivers' | 'sales' | 'activity' | 'members'
 type Dialog =
-  | { type: 'login' | 'queue' | 'driver' | 'entry' | 'help'; driver?: Driver }
+  | { type: 'login' | 'queue' | 'driver' | 'help'; driver?: Driver }
+  | { type: 'entry'; kind?: Entry['kind'] }
   | { type: 'job' | 'cancel-queue' | 'queue-actions'; item: QueueItem }
   | { type: 'job-detail'; job: Job }
   | { type: 'entry-detail'; entry: Entry }
-  | { type: 'driver-report'; driver: ReportDriver }
+  | { type: 'driver-report'; driver: ReportDriver; focus?: DriverReportFocus }
   | { type: 'confirm'; title: string; text: string; label: string; action: () => Promise<void> }
 const navs: { id: Page; label: string; icon: LucideIcon }[] = [
   { id: 'dashboard', label: 'ภาพรวม', icon: LayoutDashboard },
@@ -114,7 +116,7 @@ export default function App() {
       setReportEnd(end)
     },
     onRefresh: () => setReportRevision((v) => v + 1),
-    onDriver: (driver) => setDialog({ type: 'driver-report', driver }),
+    onDriver: (driver, focus) => setDialog({ type: 'driver-report', driver, focus }),
     onJob: (job) => setDialog({ type: 'job-detail', job }),
     onEntry: (entry) => setDialog({ type: 'entry-detail', entry }),
   }
@@ -181,6 +183,20 @@ export default function App() {
   }
   const newQueue = () => setDialog({ type: 'queue' }),
     newEntry = () => setDialog({ type: 'entry' })
+  const runningById = new Map(s.runningJobs.map((job) => [job.id, job]))
+  function confirmJoin(driver: Driver, job?: Job) {
+    const label = job ? 'จบงานและลงคิว' : 'ลงคิวรถ'
+    const tail = `นำ ${driver.name} ทะเบียน ${driver.plate} ไปต่อท้ายคิวปัจจุบัน`
+    setDialog({
+      type: 'confirm',
+      title: label,
+      text: job
+        ? `จบเที่ยววันที่ ${dateLabel(job.date, true)} · ${job.provinces.join(' → ')} และ${tail}`
+        : tail,
+      label: `ยืนยัน${label}`,
+      action: () => s.joinQueue(driver.id, job?.id),
+    })
+  }
   function moveQueueToEnd(item: QueueItem) {
     setDialog({
       type: 'confirm',
@@ -538,6 +554,14 @@ export default function App() {
               </div>
               <div className="heading-actions">
                 {page === 'jobs' && dateControl()}
+                {s.admin && page === 'finance' && (
+                  <button
+                    className="btn secondary"
+                    onClick={() => setDialog({ type: 'entry', kind: 'deduction' })}
+                  >
+                    <ArrowDownLeft size={18} /> บันทึกหักเงิน
+                  </button>
+                )}
                 {s.admin && page !== 'members' && page !== 'sales' && (
                   <button
                     className="btn primary"
@@ -661,18 +685,7 @@ export default function App() {
                     </div>
                     <button
                       className="btn secondary small"
-                      onClick={() =>
-                        exportCsv(`งานวิ่ง-${s.day}.csv`, [
-                          ['วันที่', 'คนรถ', 'ทะเบียน', 'เส้นทาง', 'สถานะ'],
-                          ...visibleJobs.map((j) => [
-                            j.date,
-                            j.driverName,
-                            j.plate,
-                            j.provinces.join(' → '),
-                            jobStates[j.status],
-                          ]),
-                        ])
-                      }
+                      onClick={() => exportCsv(`งานวิ่ง-${s.day}.csv`, jobsCsvRows(visibleJobs))}
                     >
                       <ArrowDownToLine size={16} />
                       ส่งออก CSV
@@ -721,28 +734,7 @@ export default function App() {
                     <button
                       className="btn secondary small"
                       onClick={() =>
-                        exportCsv(`การเงิน-${s.month}.csv`, [
-                          [
-                            'วันที่',
-                            'ประเภท',
-                            'คนรถ',
-                            'ทะเบียน',
-                            'จำนวนเงิน (บาท)',
-                            'ผู้รับเงิน',
-                            'รายละเอียด',
-                            'สถานะ',
-                          ],
-                          ...visibleEntries.map((e) => [
-                            e.date,
-                            kinds[e.kind],
-                            e.driverName,
-                            e.plate,
-                            (e.amount / 100).toFixed(2),
-                            e.recipient,
-                            e.description,
-                            entryStates[e.status],
-                          ]),
-                        ])
+                        exportCsv(`การเงิน-${s.month}.csv`, financeCsvRows(visibleEntries))
                       }
                     >
                       <ArrowDownToLine size={16} />
@@ -825,10 +817,15 @@ export default function App() {
                             <span className="entry-main">
                               <strong>{e.description}</strong>
                               <small>
+                                {e.kind === 'deduction' && 'หักจาก '}
                                 {e.driverName} · {e.plate}
                               </small>
+                              <span className="entry-recipient">
+                                {e.kind === 'deduction' ? 'หักให้ ' : 'ผู้รับเงิน '}
+                                {e.recipient}
+                              </span>
                               <span className="entry-meta">
-                                {dateLabel(e.date)} · {kinds[e.kind]} · ให้ {e.recipient}
+                                {dateLabel(e.date)} · {kinds[e.kind]}
                                 {e.evidenceCount > 0 && (
                                   <>
                                     <FileText size={12} />
@@ -839,7 +836,7 @@ export default function App() {
                             </span>
                             <span className="entry-amount">
                               <strong className={e.kind === 'deduction' ? 'deduction' : ''}>
-                                ฿{money(e.amount)}
+                                {e.kind === 'deduction' && '−'}฿{money(e.amount)}
                               </strong>
                               <Badge state={e.status}>{entryStates[e.status]}</Badge>
                             </span>
@@ -893,6 +890,7 @@ export default function App() {
                       .filter((d) => `${d.name} ${d.plate}`.includes(search))
                       .map((d, i) => {
                         const inQueue = queue.find((q) => q.id === d.id)
+                        const running = runningById.get(d.activeJobId)
                         return (
                           <article className="driver-card" key={d.id}>
                             <div className="driver-card-top">
@@ -944,22 +942,17 @@ export default function App() {
                                       ? queueStates[queueStatus(inQueue)]
                                       : 'พร้อมรับงาน'}
                               </Badge>
-                              {s.admin && d.active && !d.activeJobId && !inQueue && (
-                                <button
-                                  className="text-btn"
-                                  onClick={() =>
-                                    setDialog({
-                                      type: 'confirm',
-                                      title: 'ลงคิวรถ',
-                                      text: `ลงคิว ${d.name} ทะเบียน ${d.plate} ต่อท้ายคิวปัจจุบัน`,
-                                      label: 'ยืนยันลงคิว',
-                                      action: () => s.joinQueue(d.id),
-                                    })
-                                  }
-                                >
-                                  <Plus size={15} /> ลงคิว
-                                </button>
-                              )}
+                              {s.admin &&
+                                d.active &&
+                                (!d.activeJobId || running?.driverId === d.id) &&
+                                !inQueue && (
+                                  <button
+                                    className="text-btn"
+                                    onClick={() => confirmJoin(d, running)}
+                                  >
+                                    <Plus size={15} /> {running ? 'จบงานและลงคิว' : 'ลงคิว'}
+                                  </button>
+                                )}
                             </div>
                           </article>
                         )
@@ -1077,7 +1070,9 @@ export default function App() {
                         : dialog.type === 'cancel-queue'
                           ? 'ยกเลิกคิว'
                           : dialog.type === 'entry'
-                            ? 'เพิ่มรายการการเงิน'
+                            ? dialog.kind === 'deduction'
+                              ? 'บันทึกหักเงิน'
+                              : 'เพิ่มรายการการเงิน'
                             : dialog.type === 'job-detail'
                               ? 'รายละเอียดงานวิ่ง'
                               : dialog.type === 'entry-detail'
@@ -1096,6 +1091,7 @@ export default function App() {
               key={dialog.driver.id}
               {...reportProps}
               driver={dialog.driver}
+              initialFocus={dialog.focus}
               contact={s.data.drivers.find((d) => d.id === dialog.driver.id)}
               queued={queue.find((q) => q.driverId === dialog.driver.id)}
             />
@@ -1163,7 +1159,19 @@ export default function App() {
           {dialog.type === 'cancel-queue' && s.admin && (
             <CancelQueueForm item={dialog.item} onDone={done} />
           )}
-          {dialog.type === 'entry' && s.admin && <EntryForm onDone={done} />}
+          {dialog.type === 'entry' && s.admin && (
+            <EntryForm
+              initialKind={dialog.kind}
+              onDone={({ date, kind }) => {
+                s.setMonth(date.slice(0, 7))
+                setEntryFilter(kind === 'deduction' ? kind : 'all')
+                setEntryDriver('')
+                setEntryStatusFilter('all')
+                setSearch('')
+                done()
+              }}
+            />
+          )}
           {dialog.type === 'confirm' && s.admin && (
             <ConfirmForm
               text={dialog.text}
@@ -1203,11 +1211,14 @@ export default function App() {
               key={dialog.entry.id}
               entry={s.data.entries.find((e) => e.id === dialog.entry.id) || dialog.entry}
               onDriver={() =>
-                reportProps.onDriver({
-                  id: dialog.entry.driverId,
-                  name: dialog.entry.driverName,
-                  plate: dialog.entry.plate,
-                })
+                reportProps.onDriver(
+                  {
+                    id: dialog.entry.driverId,
+                    name: dialog.entry.driverName,
+                    plate: dialog.entry.plate,
+                  },
+                  'money',
+                )
               }
               onAction={(status) =>
                 setDialog({
@@ -1373,7 +1384,9 @@ function EntryDetail({
         <span className={`category-label ${entry.kind}`}>{kinds[entry.kind]}</span>
         <Badge state={entry.status}>{entryStates[entry.status]}</Badge>
       </div>
-      <div className="detail-money">฿{money(entry.amount)}</div>
+      <div className={`detail-money ${entry.kind === 'deduction' ? 'deduction' : ''}`}>
+        {entry.kind === 'deduction' && '−'}฿{money(entry.amount)}
+      </div>
       <p className="entry-description">{entry.description}</p>
       <PhoneLink
         phone={s.data.drivers.find((d) => d.id === entry.driverId)?.phone}
@@ -1381,7 +1394,7 @@ function EntryDetail({
       />
       <dl>
         <div>
-          <dt>คนรถ</dt>
+          <dt>{entry.kind === 'deduction' ? 'หักเงินจาก' : 'คนรถ'}</dt>
           <dd>
             <button className="driver-name-link" onClick={onDriver}>
               {entry.driverName}
@@ -1398,7 +1411,7 @@ function EntryDetail({
           <dd>{dateLabel(entry.date, true)}</dd>
         </div>
         <div>
-          <dt>{entry.kind === 'deduction' ? 'หักให้ / ผู้รับเงิน' : 'ผู้รับเงิน'}</dt>
+          <dt>{entry.kind === 'deduction' ? 'หักเงินให้' : 'ผู้รับเงิน'}</dt>
           <dd>{entry.recipient}</dd>
         </div>
       </dl>

@@ -18,7 +18,12 @@ import {
 import { auth, db, errorMessage, isDemo, resumeAuth } from './firebase'
 import { demoData } from './demo'
 import { cancellationPlan, cancelQueueTransaction } from './cancellations'
-import { changeQueueStatus, validateQueueStatusChange } from './queue'
+import {
+  changeQueueStatus,
+  joinQueueTransaction,
+  queueJoinPlan,
+  validateQueueStatusChange,
+} from './queue'
 import { emptyData, queueStates, today } from './model'
 import { OWNER_EMAIL } from './members'
 import { useCurrentDay } from './useReports'
@@ -47,6 +52,7 @@ type Store = {
   loading: boolean
   error: string
   jobsError: string
+  runningJobs: Job[]
   online: boolean
   currentDay: string
   day: string
@@ -59,7 +65,7 @@ type Store = {
     d: Omit<Driver, 'id' | 'createdAt' | 'updatedAt' | 'activeJobId'>,
     id?: string,
   ) => Promise<void>
-  joinQueue: (id: string) => Promise<void>
+  joinQueue: (id: string, expectedJobId?: string) => Promise<void>
   cancelQueue: (id: string, input: CancellationInput) => Promise<void>
   moveToEnd: (item: QueueItem) => Promise<void>
   setQueueStatus: (item: QueueItem, status: QueueStatus) => Promise<void>
@@ -98,6 +104,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [day, setDay] = useState(today()),
     [month, setMonth] = useState(today().slice(0, 7))
   const [demoEvidence, setDemoEvidence] = useState<Record<string, Evidence[]>>({})
+  const [runningJobs, setRunningJobs] = useState<Job[]>([])
   const currentDay = useCurrentDay()
   useEffect(() => {
     const on = () => setOnline(true),
@@ -205,6 +212,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     ]
     return () => subs.forEach((s) => s())
   }, [day, currentDay])
+  useEffect(() => {
+    if (!db || !admin) return
+    return onSnapshot(
+      query(collection(db, 'jobs'), where('status', '==', 'running')),
+      (snapshot) =>
+        setRunningJobs(snapshot.docs.map((row) => ({ ...row.data(), id: row.id }) as Job)),
+      (e) => {
+        setRunningJobs([])
+        setError(errorMessage(e))
+      },
+    )
+  }, [admin])
   useEffect(() => {
     if (!db) return
     setData((d) => ({ ...d, entries: [] }))
@@ -334,34 +353,36 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       tx.set(doc(collection(db!, 'audits')), audit('คนรถ', name))
     })
   }
-  const joinQueue: Store['joinQueue'] = async (id) => {
+  const joinQueue: Store['joinQueue'] = async (id, expectedJobId = '') => {
     requireAdmin()
-    const make = (d: Driver): Omit<QueueItem, 'id'> => ({
-      driverId: id,
-      driverName: d.name,
-      plate: d.plate,
-      truckType: d.truckType,
-      joinedAt: Date.now(),
-      status: 'waiting',
-    })
     if (isDemo) {
-      const d = data.drivers.find((d) => d.id === id)
-      if (!d || !d.active || d.activeJobId || data.queue.some((q) => q.id === id))
-        throw new Error('คนรถนี้ไม่พร้อมลงคิว หรืออยู่ในคิวแล้ว')
-      demoUpdate((s) => ({ ...s, queue: [...s.queue, { id, ...make(d) }] }), 'ลงคิว', d.name)
+      const now = Date.now()
+      const { item, action, detail } = queueJoinPlan(
+        data.drivers.find((d) => d.id === id),
+        data.queue.some((q) => q.id === id),
+        data.jobs.find((j) => j.id === expectedJobId),
+        expectedJobId,
+        Math.max(now, ...data.queue.map((q) => q.joinedAt + 1)),
+      )
+      demoUpdate(
+        (s) => ({
+          ...s,
+          queue: [...s.queue, { id, ...item }],
+          jobs: expectedJobId
+            ? s.jobs.map((j) =>
+                j.id === expectedJobId ? { ...j, status: 'completed', updatedAt: now } : j,
+              )
+            : s.jobs,
+          drivers: expectedJobId
+            ? s.drivers.map((d) => (d.id === id ? { ...d, activeJobId: '', updatedAt: now } : d))
+            : s.drivers,
+        }),
+        action,
+        detail,
+      )
       return
     }
-    await runTransaction(db!, async (tx) => {
-      const d = await tx.get(doc(db!, 'drivers', id)),
-        q = await tx.get(doc(db!, 'queue', id)),
-        seq = await tx.get(doc(db!, 'settings', 'queue'))
-      const tailAt = Math.max(Date.now(), (seq.data()?.tailAt || 0) + 1)
-      if (!d.exists() || !d.data().active || d.data().activeJobId || q.exists())
-        throw new Error('คนรถนี้ไม่พร้อมลงคิว หรืออยู่ในคิวแล้ว')
-      tx.set(q.ref, { ...make({ id, ...d.data() } as Driver), joinedAt: tailAt })
-      tx.set(seq.ref, { tailAt })
-      tx.set(doc(collection(db!, 'audits')), audit('ลงคิว', d.data().name))
-    })
+    await joinQueueTransaction(db!, id, expectedJobId, email)
   }
   const setQueueStatus: Store['setQueueStatus'] = async (item, status) => {
     requireAdmin()
@@ -593,6 +614,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         loading,
         error,
         jobsError,
+        runningJobs: isDemo ? data.jobs.filter((j) => j.status === 'running') : runningJobs,
         online,
         currentDay,
         day,
